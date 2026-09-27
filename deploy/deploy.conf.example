@@ -1,0 +1,45 @@
+# seedbox deploy config: who deploys where, with which secrets.
+# Copy to ~/.config/seedbox/deploy.conf (or deploy/deploy.conf, git-ignored)
+# and keep it private. Syntax: KEY=value, `# comments`, and
+#   include <file>
+# to pull values from another file (e.g. in your dotfiles). Later lines win,
+# so put includes first and local overrides after. Relative paths and ~ are
+# resolved from the file that contains them.
+
+# include ~/Git/dotfiles/private/seedbox-deploy.conf
+
+# --- Target host (SSH). Leave user/port/key empty to use ~/.ssh/config.
+DEPLOY_HOST=nas.lan
+DEPLOY_USER=
+DEPLOY_PORT=
+DEPLOY_SSH_KEY=
+# Remote directory holding compose.yaml, .env, seedbox.toml, secrets/, data/.
+DEPLOY_DIR=/srv/seedbox
+# Compose command on the host. Synology: sudo /usr/local/bin/docker compose
+# (full path: /usr/local/bin is not in PATH over non-interactive SSH).
+DEPLOY_COMPOSE=docker compose
+
+# --- Application config (no secret in it), your own copy of seedbox.example.toml.
+SEEDBOX_TOML=~/.config/seedbox/seedbox.toml
+
+# --- Secrets: a value, or better a command printing it on stdout.
+# macOS keychain:  security find-generic-password -s seedbox-qbt -w
+# pass:            pass show seedbox/qbt
+# 1Password:       op read op://Private/seedbox/qbt
+QBT_PASSWORD_CMD=
+PROWLARR_API_KEY_CMD=
+# QBT_PASSWORD=
+# PROWLARR_API_KEY=
+
+# --- Container (.env on the host).
+# Image version: empty = the version of this checkout (git pull = upgrade).
+SEEDBOX_VERSION=
+# Container user: empty = the SSH user's uid/gid (it must own the files).
+PUID=
+PGID=
+TZ=Europe/Paris
+# Host path mounted read-only as /media: common parent of library and downloads.
+MEDIA_ROOT=/srv/media
+SEEDBOX_PORT=8080
+# Compose template: empty = compose.example.yaml of this checkout.
+COMPOSE_TEMPLATE=

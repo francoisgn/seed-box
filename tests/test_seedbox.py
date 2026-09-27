@@ -69,6 +69,16 @@ class ConfigLoading(unittest.TestCase):
         self.assertEqual(config.map_path(cfg, "/downloads/y"), "/media/dl/y")
         self.assertEqual(config.map_path(cfg, "/downloadsz"), "/downloadsz")
 
+    def test_empty_secret_file_keeps_file_value(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            conf = os.path.join(tmp, "seedbox.toml")
+            with open(conf, "w") as handle:
+                handle.write('[library]\nroots = ["/a"]\n[qbittorrent]\npassword = "from-file"\n')
+            empty = os.path.join(tmp, "empty")
+            open(empty, "w").close()
+            with mock.patch.dict(os.environ, {"SEEDBOX_QBT_PASSWORD_FILE": empty}, clear=True):
+                self.assertEqual(config.load(conf).qbt_password, "from-file")
+
     def test_missing_roots(self):
         with (
             mock.patch.dict(os.environ, {}, clear=True),

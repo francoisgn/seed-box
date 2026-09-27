@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+- `deploy/deploy.sh`: portable (POSIX sh) deploy over SSH from a local deploy
+  config with `include` support (dotfiles), secrets from commands (keychain,
+  pass…), one multiplexed SSH connection, uid check, `seedbox check` at the end.
+  Options `--print-config`, `--render DIR`, `--check`.
+- Secrets reach the container as files (`secrets/`, `SEEDBOX_*_FILE`); an empty
+  file means "not set".
+- Compose template mounts `secrets/`; `seedbox.example.toml` no longer holds secrets.
+- ShellCheck in pre-commit.
+
 ## 0.3.0
 
 - CI: GitHub Actions bumped to their Node 24 majors (docker/* v4, metadata-action v6,

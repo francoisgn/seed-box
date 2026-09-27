@@ -49,20 +49,36 @@ reduced to their domain and merged. The dashboard flags:
 - 🔴 a tracker Prowlarr disabled after errors,
 - per entry, **"missing on tracker X"**: content you could still share there.
 
-## Quick start (container)
+## Deploy (container, remote host)
+
+From your machine, over SSH, with your host details and secrets kept in a
+local config that never reaches the repo:
+
+```sh
+mkdir -p ~/.config/seedbox
+cp deploy/deploy.conf.example ~/.config/seedbox/deploy.conf   # host, SSH, secrets commands
+cp seedbox.example.toml ~/.config/seedbox/seedbox.toml         # roots, path map, schedule
+deploy/deploy.sh --print-config
+deploy/deploy.sh                 # upload, pull, start, seedbox check
+```
+
+Afterwards, `git pull && deploy/deploy.sh` upgrades. The deploy config can
+`include` files from your dotfiles. Details, requirements on the host and
+options: [docs/deployment.md](docs/deployment.md).
+
+### By hand, on the host
 
 ```sh
 cp compose.example.yaml compose.yaml
 cp .env.example .env                  # host values: version, PUID/PGID, TZ, paths
-cp seedbox.example.toml seedbox.toml  # connections, secrets, schedule
-chmod 600 seedbox.toml
+cp seedbox.example.toml seedbox.toml  # roots, path map, schedule
+mkdir -p secrets && chmod 700 secrets
+printf '%s' 'qbt-password' > secrets/qbt_password
+printf '%s' 'prowlarr-api-key' > secrets/prowlarr_api_key   # empty file if unused
+chmod 600 secrets/*
 docker compose run --rm seedbox check    # validate every source
 docker compose up -d                     # collect now, then on schedule; serve on :8080
 ```
-
-For a real deployment (secrets rendered from a secret store, remote host,
-upgrades), see [docs/deployment.md](docs/deployment.md): it describes the
-flow and the contract your own CD has to fulfil.
 
 `seedbox check` tests each source separately (library roots, path mapping,
 qBittorrent, Prowlarr, output dir) and is the first thing to run.

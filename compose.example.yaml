@@ -1,6 +1,6 @@
-# Deployment template next to qBittorrent and Prowlarr. Host-specific values
-# live in .env and secrets in seedbox.toml, both rendered at deploy time and
-# never committed (see docs/deployment.md).
+# Deployment template next to qBittorrent and Prowlarr, used as is by
+# deploy/deploy.sh. Host values come from .env, secrets from secrets/ files,
+# both rendered at deploy time and never committed (docs/deployment.md).
 #
 # Key constraint: seedbox must see the library AND the torrent data on the
 # same filesystem as qBittorrent does (hardlinks = same inodes). Mount the
@@ -13,8 +13,12 @@ services:
     restart: unless-stopped
     environment:
       TZ: ${TZ:-UTC}
+      # Empty file = not set (the value from seedbox.toml, if any, applies).
+      SEEDBOX_QBT_PASSWORD_FILE: /run/secrets/qbt_password
+      SEEDBOX_PROWLARR_API_KEY_FILE: /run/secrets/prowlarr_api_key
     volumes:
       - ./seedbox.toml:/config/seedbox.toml:ro
+      - ./secrets:/run/secrets:ro
       - ${MEDIA_ROOT:?set MEDIA_ROOT in .env}:/media:ro
       - ./data:/data
     ports:

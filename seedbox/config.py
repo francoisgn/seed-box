@@ -71,7 +71,8 @@ def _env(name):
     if path:
         try:
             with open(path, encoding="utf-8") as handle:
-                return handle.read().strip()
+                # An empty file means "not set", so the config file value applies.
+                return handle.read().strip() or None
         except OSError as exc:
             raise ConfigError(f"cannot read {name}_FILE ({path}): {exc}") from exc
     return None
