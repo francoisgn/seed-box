@@ -123,6 +123,50 @@ class QbtLogin(unittest.TestCase):
                 self.login(code, body)
 
 
+class StartupCollection(unittest.TestCase):
+    """`seedbox run` collects at start only when it is actually needed."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        with (
+            mock.patch.dict(os.environ, {"SEEDBOX_ROOTS": "/a", "SEEDBOX_OUTPUT_DIR": self.tmp.name}, clear=True),
+            mock.patch.object(config, "DEFAULT_PATHS", ()),
+        ):
+            self.cfg = config.load()
+        self.cfg.schedule = "sun 04:00"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def snapshot(self, when, fingerprint=None):
+        generated = when.astimezone().isoformat()  # local naive -> aware, like a real run
+        with open(os.path.join(self.tmp.name, "snapshot.json"), "w") as handle:
+            json.dump({"generated": generated, "config": fingerprint or config.fingerprint(self.cfg)}, handle)
+
+    def decide(self, now):
+        from seedbox import cli
+
+        return cli.startup_collection(self.cfg, now)[0]
+
+    def test_rules(self):
+        wednesday = datetime(2026, 9, 30, 10, 0)
+        self.assertTrue(self.decide(wednesday))  # no snapshot
+        self.snapshot(datetime(2026, 9, 27, 4, 1))  # Sunday's run happened
+        self.assertFalse(self.decide(wednesday))
+        self.assertTrue(self.decide(datetime(2026, 10, 4, 5, 0)))  # next Sunday's run was missed
+        self.snapshot(datetime(2026, 9, 26, 12, 0))  # before Sunday: missed
+        self.assertTrue(self.decide(wednesday))
+        self.snapshot(datetime(2026, 9, 29, 12, 0), fingerprint="other")
+        self.assertTrue(self.decide(wednesday))  # config changed
+
+    def test_interval_mode(self):
+        self.cfg.schedule = ""
+        self.cfg.interval_hours = 24
+        self.snapshot(datetime(2026, 9, 30, 0, 0))
+        self.assertFalse(self.decide(datetime(2026, 9, 30, 10, 0)))
+        self.assertTrue(self.decide(datetime(2026, 10, 1, 0, 0)))
+
+
 class SecretsFile(unittest.TestCase):
     def _load(self, mode, body):
         with tempfile.TemporaryDirectory() as tmp:
@@ -151,6 +195,12 @@ class Schedule(unittest.TestCase):
         for bad in ("24:00", "sun", "xyz 04:00", "04:00 sun", "4h"):
             with self.assertRaises(ValueError):
                 schedule.parse(bad)
+
+    def test_prev_run(self):
+        wednesday = datetime(2026, 9, 30, 10, 0)
+        self.assertEqual(schedule.prev_run(schedule.parse("sun 04:00"), wednesday), datetime(2026, 9, 27, 4, 0))
+        self.assertEqual(schedule.prev_run(schedule.parse("10:00"), wednesday), wednesday)
+        self.assertEqual(schedule.prev_run(schedule.parse("wed 11:00"), wednesday), datetime(2026, 9, 23, 11, 0))
 
     def test_next_run(self):
         wednesday = datetime(2026, 9, 30, 10, 0)

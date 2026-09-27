@@ -77,7 +77,7 @@ printf '%s' 'qbt-password' > secrets/qbt_password
 printf '%s' 'prowlarr-api-key' > secrets/prowlarr_api_key   # empty file if unused
 chmod 600 secrets/*
 docker compose run --rm seedbox check    # validate every source
-docker compose up -d                     # collect now, then on schedule; serve on :8080
+docker compose up -d                     # first collection now, then on schedule; serve on :8080
 docker compose exec seedbox seedbox status  # what qBittorrent is busy with
 ```
 

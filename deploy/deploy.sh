@@ -289,7 +289,34 @@ spin "Upload config, secrets and compose file" upload || exit 1
 spin "Pull image ghcr.io/francoisgn/seed-box:$C_SEEDBOX_VERSION" compose "pull -q" || exit 1
 # --force-recreate: seedbox.toml is a single-file bind mount; tar replaced the
 # file (new inode) and a running container would keep reading the old one.
-spin "Start container" compose "up -d --force-recreate --remove-orphans" || exit 1
+# On a busy host, Compose v1 gives up after 60 s (COMPOSE_HTTP_TIMEOUT, which
+# sudo does not pass through) while the daemon carries on: the new container
+# may be left "Created" and the old one renamed "<id>_seedbox". Converge with
+# plain `up` / `start` instead of recreating again.
+running() { [ "$(rssh "$C_DEPLOY_DOCKER inspect -f '{{.State.Running}}' seedbox" 2>/dev/null)" = true ]; }
+start_container() {
+  compose "up -d --force-recreate --remove-orphans" && return 0
+  echo "compose failed or timed out, converging"
+  i=0
+  while [ "$i" -lt 3 ]; do
+    i=$((i + 1))
+    sleep "${SEEDBOX_DEPLOY_RETRY_DELAY:-20}"
+    running && return 0
+    compose "up -d --remove-orphans" || true
+    running && return 0
+    rssh "$C_DEPLOY_DOCKER start seedbox" || true
+    running && return 0
+  done
+  return 1
+}
+# Old containers renamed by an interrupted recreate: `<12 hex>_seedbox`, stopped.
+remove_leftovers() {
+  rssh "for n in \$($C_DEPLOY_DOCKER ps -a --filter status=exited --filter status=created --format '{{.Names}}' \
+    | grep -E '^[0-9a-f]{12}_seedbox\$'); do $C_DEPLOY_DOCKER rm \"\$n\" && echo \"removed \$n\"; done"
+}
+spin "Start container" start_container || exit 1
+remove_leftovers >"$WORK/leftovers.log" 2>&1 || true
+[ -s "$WORK/leftovers.log" ] && sed 's/^/        /' "$WORK/leftovers.log"
 rc=0
 check >"$WORK/check.log" 2>&1 || rc=$?
 sed 's/^/        /' "$WORK/check.log"

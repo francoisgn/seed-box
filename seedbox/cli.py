@@ -5,13 +5,16 @@ import functools
 import http.server
 import json
 import os
+import signal
+import sys
 import threading
 import time
+from datetime import datetime
 
 from seedbox import __version__, collect, prowlarr, report, status, ui
 from seedbox import schedule as sched
 from seedbox.api import ApiError
-from seedbox.config import ConfigError, load
+from seedbox.config import ConfigError, fingerprint, load
 from seedbox.qbittorrent import QbtClient
 
 
@@ -121,19 +124,51 @@ def _wait(cfg):
     return max(cfg.interval_hours, 0.1) * 3600
 
 
+def startup_collection(cfg, now=None):
+    """Whether `run` must collect right away, and why.
+
+    A restart (deploy, reboot) must not add a history line for nothing: collect
+    only without a previous snapshot, when the config changed since, or when a
+    scheduled run (or the interval) was missed while the service was down.
+    """
+    now = now or sched.now()
+    try:
+        with open(os.path.join(cfg.output_dir, "snapshot.json"), encoding="utf-8") as handle:
+            snap = json.load(handle)
+        last = datetime.fromisoformat(snap["generated"]).astimezone().replace(tzinfo=None)
+    except (OSError, ValueError, KeyError, TypeError):
+        return True, "no previous collection"
+    if snap.get("config") != fingerprint(cfg):
+        return True, "config changed since the last collection"
+    if cfg.schedule:
+        missed = sched.prev_run(sched.parse(cfg.schedule), now)
+        if last < missed:
+            return True, f"scheduled run of {missed:%Y-%m-%d %H:%M} was missed"
+    elif (now - last).total_seconds() >= max(cfg.interval_hours, 0.1) * 3600:
+        return True, "interval elapsed since the last collection"
+    return False, f"last collection {last:%Y-%m-%d %H:%M} is current"
+
+
 def cmd_run(cfg):
-    """Serve the output directory, collect at start then on schedule."""
+    """Serve the output directory, collect if needed, then on schedule."""
+    # PID 1 in a container ignores SIGTERM by default: `docker stop` would wait
+    # its whole timeout, then kill (exit 137). Exit right away instead.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     os.makedirs(cfg.output_dir, exist_ok=True)
     _Handler.cfg = cfg
     handler = functools.partial(_Handler, directory=cfg.output_dir)
     server = http.server.ThreadingHTTPServer(("0.0.0.0", cfg.port), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     ui.ok(f"serving {cfg.output_dir} on port {cfg.port}, collection {_schedule_text(cfg)}")
+    needed, why = startup_collection(cfg)
+    ui.info(f"startup collection: {'yes' if needed else 'skipped'} ({why})")
     while True:
-        try:
-            cmd_collect(cfg)
-        except (ApiError, OSError) as exc:
-            ui.ko(f"collection failed: {exc}")
+        if needed:
+            try:
+                cmd_collect(cfg)
+            except (ApiError, OSError) as exc:
+                ui.ko(f"collection failed: {exc}")
+        needed = True
         time.sleep(_wait(cfg))
 
 

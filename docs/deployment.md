@@ -111,8 +111,20 @@ config files then contain nothing that must not leak, only where to find it.
 3. Render the files locally in a private temp directory, deleted on exit.
 4. Upload them in one `tar` stream (`ustar`, no macOS metadata); `data/` is
    never touched.
-5. `pull`, `up -d`, then `seedbox check` inside the container: the deploy
-   fails if the check reports a `ko`.
+5. `pull`, `up -d --force-recreate`, then `seedbox check` inside the
+   container: the deploy fails if the check reports a `ko`.
+
+On a busy host, Compose v1 gives up after 60 s while the Docker daemon
+carries on, which can leave the new container `Created` and the old one
+renamed `<id>_seedbox`. The script then converges instead of recreating
+again: it waits (`SEEDBOX_DEPLOY_RETRY_DELAY`, 20 s by default), checks the
+container, runs a plain `up -d`, then `docker start`, up to 3 times. Stopped
+`<id>_seedbox` leftovers are removed afterwards.
+
+Redeploying does not add a line to the history: at start, the container
+collects only if there is no previous collection, the config changed, or a
+scheduled run was missed while it was down. For a fresh collection anyway:
+`docker exec seedbox python -m seedbox collect` on the host.
 
 The container reads the secrets from `/run/secrets/*` through
 `SEEDBOX_*_FILE`; an empty file means "not set", so a value in `seedbox.toml`

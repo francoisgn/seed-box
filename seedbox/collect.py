@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from seedbox import library, prowlarr
 from seedbox import trackers as trk
 from seedbox.api import ApiError
-from seedbox.config import map_path
+from seedbox.config import fingerprint, map_path
 from seedbox.qbittorrent import QbtClient
 
 
@@ -167,6 +167,7 @@ def run(cfg, log, progress=lambda msg: None):
     total = len(entries)
     return {
         "generated": datetime.now(UTC).isoformat(timespec="seconds"),
+        "config": fingerprint(cfg),
         "duration_s": round(time.time() - started, 1),
         "summary": {
             "entries": total,

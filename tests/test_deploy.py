@@ -17,10 +17,17 @@ case " $* " in *" -O exit "*) exit 0 ;; esac
 exec sh -c "$last"
 """
 
-# Records its arguments; `exec` answers like `seedbox check`.
+# Records its arguments; stands for both `docker compose` and `docker`.
+# `exec` answers like `seedbox check`; UP_FAIL makes the recreate time out;
+# RUNNING is what `inspect` reports; `ps` lists one leftover renamed container.
 FAKE_COMPOSE = """#!/bin/sh
 echo "$*" >> "$COMPOSE_LOG"
-case "$1 $3" in "exec "* | *" exec") echo "ok      qBittorrent reachable"; exit "${CHECK_RC:-0}" ;; esac
+case " $* " in
+  *" exec "*) echo "ok      qBittorrent reachable"; exit "${CHECK_RC:-0}" ;;
+  *" --force-recreate "*) [ -z "${UP_FAIL:-}" ] || exit 1 ;;
+  " inspect "*) echo "${RUNNING:-true}" ;;
+  " ps "*) printf '0123456789ab_seedbox\\nseedbox\\nother_seedbox\\n' ;;
+esac
 """
 
 
@@ -66,6 +73,7 @@ class DeployScript(unittest.TestCase):
             "HOME": self.home,
             "NO_COLOR": "1",
             "COMPOSE_LOG": os.path.join(self.t, "compose.log"),
+            "SEEDBOX_DEPLOY_RETRY_DELAY": "0",
         }
 
     def tearDown(self):
@@ -131,11 +139,35 @@ class DeployScript(unittest.TestCase):
             [
                 "-f compose.yaml pull -q",
                 "-f compose.yaml up -d --force-recreate --remove-orphans",
+                "ps -a --filter status=exited --filter status=created --format {{.Names}}",
+                "rm 0123456789ab_seedbox",
                 "exec seedbox python -m seedbox check",
             ],
         )
+        self.assertIn("removed 0123456789ab_seedbox", result.stdout)
         self.assertIn("seedbox check passed", result.stdout)
         self.assertNotIn("p@ss", result.stdout + result.stderr)
+
+    def calls(self):
+        with open(self.env["COMPOSE_LOG"]) as handle:
+            return handle.read().splitlines()
+
+    def test_recreate_timeout_converges(self):
+        result = self.run_script(env={"UP_FAIL": "1"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        calls = self.calls()
+        # The recreate is not retried: the daemon may still be doing it.
+        self.assertEqual(sum("--force-recreate" in c for c in calls), 1)
+        self.assertIn("inspect -f {{.State.Running}} seedbox", calls)
+        self.assertIn("seedbox check passed", result.stdout)
+
+    def test_recreate_timeout_gives_up(self):
+        result = self.run_script(env={"UP_FAIL": "1", "RUNNING": "false"})
+        self.assertEqual(result.returncode, 1)
+        calls = self.calls()
+        self.assertEqual(calls.count("-f compose.yaml up -d --remove-orphans"), 3)
+        self.assertEqual(calls.count("start seedbox"), 3)
+        self.assertNotIn("exec seedbox python -m seedbox check", calls)
 
     def test_status_only_runs_status(self):
         result = self.run_script("--status")

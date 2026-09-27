@@ -40,6 +40,16 @@ def next_run(spec, now):
     raise AssertionError("unreachable: a weekday always matches within 8 days")
 
 
+def prev_run(spec, now):
+    """Last datetime at or before `now` matching the parsed schedule."""
+    days, hour, minute = spec
+    for offset in range(8):
+        candidate = (now - timedelta(days=offset)).replace(hour=hour, minute=minute, second=0, microsecond=0)
+        if candidate <= now and candidate.weekday() in days:
+            return candidate
+    raise AssertionError("unreachable: a weekday always matches within 8 days")
+
+
 def describe(spec):
     days, hour, minute = spec
     when = "every day" if len(days) == 7 else ",".join(DAYS[d] for d in sorted(days))

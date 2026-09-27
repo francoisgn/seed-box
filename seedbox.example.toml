@@ -41,7 +41,8 @@ dir = "/data"
 csv_delimiter = ","             # ";" opens straight in Excel with a French locale
 
 [service]
-# `seedbox run` collects at start, then on schedule:
+# `seedbox run` collects on schedule; at start only if never done, if the
+# config changed, or if a scheduled run was missed while it was down.
 #   "04:00" every day, "sun 04:00" weekly, "mon,thu 03:30"... (container TZ)
 # Empty schedule = every interval_hours instead.
 schedule = "sun 04:00"

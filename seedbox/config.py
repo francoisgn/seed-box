@@ -6,6 +6,8 @@ Lookup order for the file: --config, $SEEDBOX_CONFIG, ./seedbox.toml,
 `<VAR>_FILE` convention (Docker secrets), e.g. SEEDBOX_QBT_PASSWORD_FILE.
 """
 
+import hashlib
+import json
 import os
 import stat
 import tomllib
@@ -180,6 +182,16 @@ def load(path=None):
     if cfg.prowlarr_enabled and not cfg.prowlarr_api_key:
         raise ConfigError("Prowlarr URL set without an API key (SEEDBOX_PROWLARR_API_KEY)")
     return cfg
+
+
+def fingerprint(cfg):
+    """Short hash of what shapes a collection (no secret, no schedule/output)."""
+    relevant = {
+        "roots": cfg.roots, "max_depth": cfg.max_depth, "skip_dirs": cfg.skip_dirs, "media_ext": cfg.media_ext,
+        "qbt_url": cfg.qbt_url, "qbt_username": cfg.qbt_username, "path_map": cfg.path_map,
+        "prowlarr_url": cfg.prowlarr_url, "tracker_aliases": cfg.tracker_aliases,
+    }  # fmt: skip
+    return hashlib.sha256(json.dumps(relevant, sort_keys=True).encode()).hexdigest()[:12]
 
 
 def map_path(cfg, path):

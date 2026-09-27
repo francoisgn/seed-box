@@ -1,9 +1,18 @@
 # Changelog
 
-## Unreleased
+## 0.5.1
 
 - Deploy: `up -d --force-recreate`, so a changed `seedbox.toml` (single-file bind
   mount, replaced by the upload) is actually seen by the container.
+- Deploy: when Compose gives up on a slow host (60 s timeout) while the daemon
+  carries on, converge with `up -d` / `docker start` instead of failing, then
+  remove the old containers left renamed `<id>_seedbox`.
+- `seedbox run` exits at once on SIGTERM (it ignored it as PID 1: every
+  `docker stop` waited 10 s, then killed it with exit 137).
+- `seedbox run` no longer collects at every start: only without a previous
+  collection, after a config change, or when a scheduled run (or the interval)
+  was missed. Restarts and redeploys stop adding duplicate history lines.
+- Snapshot: `config` fingerprint of the settings that shape a collection.
 
 ## 0.5.0
 
