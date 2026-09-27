@@ -8,6 +8,7 @@ import threading
 import time
 
 from seedbox import __version__, collect, prowlarr, report, ui
+from seedbox import schedule as sched
 from seedbox.api import ApiError
 from seedbox.config import ConfigError, load
 from seedbox.qbittorrent import QbtClient
@@ -34,6 +35,10 @@ def cmd_check(cfg):
     """Check each source separately, to validate a deployment."""
     rc = 0
     ui.info(f"config: {cfg.source or 'environment only'}")
+    ui.info(f"qBittorrent password: {'set' if cfg.qbt_password else 'not set'}")
+    if cfg.prowlarr_enabled:
+        ui.info(f"Prowlarr API key: {'set' if cfg.prowlarr_api_key else 'not set'}")
+    ui.info(f"collection: {_schedule_text(cfg)}")
     for root in cfg.roots:
         if os.path.isdir(root) and os.access(root, os.R_OK | os.X_OK):
             ui.ok(f"library root readable: {root}")
@@ -72,19 +77,35 @@ class _QuietHandler(http.server.SimpleHTTPRequestHandler):
         pass
 
 
+def _schedule_text(cfg):
+    if cfg.schedule:
+        return sched.describe(sched.parse(cfg.schedule))
+    return f"every {cfg.interval_hours:g}h"
+
+
+def _wait(cfg):
+    """Seconds until the next collection."""
+    if cfg.schedule:
+        now = sched.now()
+        nxt = sched.next_run(sched.parse(cfg.schedule), now)
+        ui.info(f"next collection: {nxt:%Y-%m-%d %H:%M}")
+        return (nxt - now).total_seconds()
+    return max(cfg.interval_hours, 0.1) * 3600
+
+
 def cmd_run(cfg):
-    """Serve the output directory and collect every interval_hours."""
+    """Serve the output directory, collect at start then on schedule."""
     os.makedirs(cfg.output_dir, exist_ok=True)
     handler = functools.partial(_QuietHandler, directory=cfg.output_dir)
     server = http.server.ThreadingHTTPServer(("0.0.0.0", cfg.port), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    ui.ok(f"serving {cfg.output_dir} on port {cfg.port}, collecting every {cfg.interval_hours:g}h")
+    ui.ok(f"serving {cfg.output_dir} on port {cfg.port}, collection {_schedule_text(cfg)}")
     while True:
         try:
             cmd_collect(cfg)
         except (ApiError, OSError) as exc:
             ui.ko(f"collection failed: {exc}")
-        time.sleep(max(cfg.interval_hours, 0.1) * 3600)
+        time.sleep(_wait(cfg))
 
 
 def main(argv=None):
@@ -101,6 +122,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     try:
         cfg = load(args.config)
+        for message in cfg.warnings:
+            ui.warn(message)
         return {"collect": cmd_collect, "check": cmd_check, "run": cmd_run}[args.command](cfg)
     except (ConfigError, ApiError) as exc:
         ui.ko(str(exc))

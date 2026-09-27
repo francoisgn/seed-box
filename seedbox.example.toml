@@ -1,6 +1,11 @@
-# seedbox configuration. Copy to seedbox.toml (or /config/seedbox.toml in the
-# container) and adapt. Every key can be overridden by an environment
-# variable (see README), secrets preferably so.
+# seedbox configuration template: connections, secrets and schedule in one file.
+#
+# Deployed copy: /config/seedbox.toml in the container, mode 600, owned by the
+# container user (PUID). It holds secrets: never commit it, render it from your
+# secret store at deploy time (see docs/deployment.md). seedbox warns when a
+# file holding secrets is readable by group or others.
+#
+# Any key below can be overridden by an environment variable (README).
 
 [library]
 # Library roots as seen by seedbox (inside the container: the mount points).
@@ -14,7 +19,7 @@ max_depth = 4
 [qbittorrent]
 url = "http://qbittorrent:8080"
 username = "admin"
-# password = ""   # better: SEEDBOX_QBT_PASSWORD or SEEDBOX_QBT_PASSWORD_FILE
+password = "CHANGE_ME"          # secret; empty = no login (client whitelist)
 
 # Paths reported by qBittorrent -> same location as seen by seedbox.
 # Both must be the same filesystem: matching is done by inode.
@@ -22,9 +27,9 @@ username = "admin"
 "/downloads" = "/media/downloads"
 
 [prowlarr]
-# Optional. Empty url = disabled.
+# Optional: empty url = disabled.
 url = "http://prowlarr:9696"
-# api_key = ""    # better: SEEDBOX_PROWLARR_API_KEY or SEEDBOX_PROWLARR_API_KEY_FILE
+api_key = "CHANGE_ME"           # secret: Prowlarr > Settings > General > API Key
 
 # Host (announce or indexer site) -> tracker name, when the announce domain
 # differs from the site domain, or to merge several hosts into one tracker.
@@ -33,8 +38,12 @@ url = "http://prowlarr:9696"
 
 [output]
 dir = "/data"
-csv_delimiter = ","   # ";" opens straight in Excel with a French locale
+csv_delimiter = ","             # ";" opens straight in Excel with a French locale
 
 [service]
-interval_hours = 24   # `seedbox run`: collection period
-port = 8080           # `seedbox run`: dashboard HTTP port
+# `seedbox run` collects at start, then on schedule:
+#   "04:00" every day, "sun 04:00" weekly, "mon,thu 03:30"... (container TZ)
+# Empty schedule = every interval_hours instead.
+schedule = "sun 04:00"
+interval_hours = 24
+port = 8080                     # dashboard HTTP port, no auth: LAN or reverse proxy

@@ -2,9 +2,10 @@ import json
 import os
 import tempfile
 import unittest
+from datetime import datetime
 from unittest import mock
 
-from seedbox import collect, config, dashboard, library, report, trackers
+from seedbox import collect, config, dashboard, library, report, schedule, trackers
 
 
 def touch(path, size=10):
@@ -84,6 +85,44 @@ class ConfigLoading(unittest.TestCase):
             self.assertRaises(config.ConfigError),
         ):
             config.load()
+
+
+class SecretsFile(unittest.TestCase):
+    def _load(self, mode, body):
+        with tempfile.TemporaryDirectory() as tmp:
+            conf = os.path.join(tmp, "seedbox.toml")
+            with open(conf, "w") as handle:
+                handle.write('[library]\nroots = ["/a"]\n' + body)
+            os.chmod(conf, mode)
+            with mock.patch.dict(os.environ, {}, clear=True):
+                return config.load(conf)
+
+    def test_readable_secrets_warn(self):
+        self.assertTrue(self._load(0o644, '[qbittorrent]\npassword = "x"\n').warnings)
+        self.assertFalse(self._load(0o600, '[qbittorrent]\npassword = "x"\n').warnings)
+        self.assertFalse(self._load(0o644, "").warnings)
+
+    def test_bad_schedule(self):
+        with self.assertRaises(config.ConfigError):
+            self._load(0o600, '[service]\nschedule = "sunday 4h"\n')
+
+
+class Schedule(unittest.TestCase):
+    def test_parse(self):
+        self.assertEqual(schedule.parse("04:00"), (set(range(7)), 4, 0))
+        self.assertEqual(schedule.parse("Sun 4:30"), ({6}, 4, 30))
+        self.assertEqual(schedule.parse("mon,thu 23:59")[0], {0, 3})
+        for bad in ("24:00", "sun", "xyz 04:00", "04:00 sun", "4h"):
+            with self.assertRaises(ValueError):
+                schedule.parse(bad)
+
+    def test_next_run(self):
+        wednesday = datetime(2026, 9, 30, 10, 0)
+        self.assertEqual(schedule.next_run(schedule.parse("11:00"), wednesday), datetime(2026, 9, 30, 11, 0))
+        self.assertEqual(schedule.next_run(schedule.parse("10:00"), wednesday), datetime(2026, 10, 1, 10, 0))
+        self.assertEqual(schedule.next_run(schedule.parse("sun 04:00"), wednesday), datetime(2026, 10, 4, 4, 0))
+        self.assertEqual(schedule.next_run(schedule.parse("wed 09:00"), wednesday), datetime(2026, 10, 7, 9, 0))
+        self.assertEqual(schedule.describe(schedule.parse("sun 04:00")), "sun at 04:00")
 
 
 class Pipeline(unittest.TestCase):

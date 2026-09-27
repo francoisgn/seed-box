@@ -1,4 +1,5 @@
-"""Configuration: optional TOML file, overridden by environment variables.
+"""Configuration: one TOML file (connections, secrets, schedule), overridable
+by environment variables.
 
 Lookup order for the file: --config, $SEEDBOX_CONFIG, ./seedbox.toml,
 /config/seedbox.toml. Every secret can also come from a file through the
@@ -6,8 +7,11 @@ Lookup order for the file: --config, $SEEDBOX_CONFIG, ./seedbox.toml,
 """
 
 import os
+import stat
 import tomllib
 from dataclasses import dataclass, field
+
+from seedbox import schedule as sched
 
 DEFAULT_PATHS = ("seedbox.toml", "/config/seedbox.toml")
 
@@ -45,10 +49,13 @@ class Config:
 
     output_dir: str = "/data"
     csv_delimiter: str = ","
+    # `seedbox run`: fixed schedule ("sun 04:00") or, if empty, a period.
+    schedule: str = ""
     interval_hours: float = 24.0
     port: int = 8080
 
     source: str = ""
+    warnings: list = field(default_factory=list)
 
     @property
     def prowlarr_enabled(self):
@@ -125,6 +132,7 @@ def load(path=None):
     cfg.csv_delimiter = output.get("csv_delimiter", cfg.csv_delimiter)
 
     service = data.get("service", {})
+    cfg.schedule = service.get("schedule", cfg.schedule)
     cfg.interval_hours = float(service.get("interval_hours", cfg.interval_hours))
     cfg.port = int(service.get("port", cfg.port))
 
@@ -137,6 +145,7 @@ def load(path=None):
         "SEEDBOX_PROWLARR_URL": ("prowlarr_url", str),
         "SEEDBOX_PROWLARR_API_KEY": ("prowlarr_api_key", str),
         "SEEDBOX_OUTPUT_DIR": ("output_dir", str),
+        "SEEDBOX_SCHEDULE": ("schedule", str),
         "SEEDBOX_INTERVAL_HOURS": ("interval_hours", float),
         "SEEDBOX_PORT": ("port", int),
     }
@@ -156,6 +165,15 @@ def load(path=None):
         sorted(((k.rstrip("/"), v.rstrip("/")) for k, v in cfg.path_map.items()), key=lambda kv: -len(kv[0]))
     )
 
+    if cfg.schedule:
+        try:
+            sched.parse(cfg.schedule)
+        except ValueError as exc:
+            raise ConfigError(str(exc)) from exc
+    if found and (qbt.get("password") or prowlarr.get("api_key")):
+        mode = os.stat(found).st_mode
+        if mode & (stat.S_IRWXG | stat.S_IRWXO):
+            cfg.warnings.append(f"{found} holds secrets but is readable by others (mode {mode & 0o777:o}), use 600")
     if not cfg.roots:
         raise ConfigError("no library root configured ([library] roots or SEEDBOX_ROOTS)")
     if cfg.prowlarr_enabled and not cfg.prowlarr_api_key:

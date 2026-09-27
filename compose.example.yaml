@@ -1,25 +1,21 @@
-# Example deployment next to qBittorrent and Prowlarr. Adapt paths and IDs;
-# keep your real values in .env (not versioned).
+# Deployment template next to qBittorrent and Prowlarr. Host-specific values
+# live in .env and secrets in seedbox.toml, both rendered at deploy time and
+# never committed (see docs/deployment.md).
 #
 # Key constraint: seedbox must see the library AND the torrent data on the
 # same filesystem as qBittorrent does (hardlinks = same inodes). Mount the
 # common parent once, read-only.
 services:
   seedbox:
-    image: ghcr.io/francoisgn/seed-box:0.1
+    image: ghcr.io/francoisgn/seed-box:${SEEDBOX_VERSION:?set SEEDBOX_VERSION in .env}
     container_name: seedbox
-    user: "${PUID:-1000}:${PGID:-1000}"
+    user: "${PUID:?set PUID in .env}:${PGID:?set PGID in .env}"
     restart: unless-stopped
     environment:
-      SEEDBOX_QBT_URL: http://qbittorrent:8080
-      SEEDBOX_QBT_USERNAME: ${QBT_USERNAME:-admin}
-      SEEDBOX_QBT_PASSWORD: ${QBT_PASSWORD:?set QBT_PASSWORD in .env}
-      SEEDBOX_PROWLARR_URL: ${PROWLARR_URL:-}   # e.g. http://prowlarr:9696, empty = off
-      SEEDBOX_PROWLARR_API_KEY: ${PROWLARR_API_KEY:-}
-      SEEDBOX_INTERVAL_HOURS: "24"
+      TZ: ${TZ:-UTC}
     volumes:
       - ./seedbox.toml:/config/seedbox.toml:ro
       - ${MEDIA_ROOT:?set MEDIA_ROOT in .env}:/media:ro
       - ./data:/data
     ports:
-      - "8080:8080"   # no auth: keep it on the LAN or behind a reverse proxy
+      - "${SEEDBOX_PORT:-8080}:8080"

@@ -53,11 +53,16 @@ reduced to their domain and merged. The dashboard flags:
 
 ```sh
 cp compose.example.yaml compose.yaml
-cp .env.example .env              # fill in paths and secrets
-cp seedbox.example.toml seedbox.toml
+cp .env.example .env                  # host values: version, PUID/PGID, TZ, paths
+cp seedbox.example.toml seedbox.toml  # connections, secrets, schedule
+chmod 600 seedbox.toml
 docker compose run --rm seedbox check    # validate every source
-docker compose up -d                     # collect every 24 h, serve on :8080
+docker compose up -d                     # collect now, then on schedule; serve on :8080
 ```
+
+For a real deployment (secrets rendered from a secret store, remote host,
+upgrades), see [docs/deployment.md](docs/deployment.md): it describes the
+flow and the contract your own CD has to fulfil.
 
 `seedbox check` tests each source separately (library roots, path mapping,
 qBittorrent, Prowlarr, output dir) and is the first thing to run.
@@ -77,12 +82,13 @@ Python 3.11+, no dependency:
 ```sh
 python3 -m seedbox -c seedbox.toml check
 python3 -m seedbox -c seedbox.toml collect   # one run, for cron
-python3 -m seedbox -c seedbox.toml run       # service: serve + collect periodically
+python3 -m seedbox -c seedbox.toml run       # service: serve + collect on schedule
 ```
 
 ## Configuration
 
-A TOML file ([`seedbox.example.toml`](seedbox.example.toml)), found through
+One TOML file holds connections, secrets and schedule
+([`seedbox.example.toml`](seedbox.example.toml)), found through
 `--config`, `$SEEDBOX_CONFIG`, `./seedbox.toml` or `/config/seedbox.toml`.
 Environment variables override it. Any of them can be read from a file with
 the `_FILE` suffix (Docker secrets), e.g. `SEEDBOX_QBT_PASSWORD_FILE`.
@@ -100,7 +106,8 @@ the `_FILE` suffix (Docker secrets), e.g. `SEEDBOX_QBT_PASSWORD_FILE`.
 | | `trackers.aliases` | none |
 | `SEEDBOX_OUTPUT_DIR` | `output.dir` | `/data` |
 | | `output.csv_delimiter` | `,` |
-| `SEEDBOX_INTERVAL_HOURS` | `service.interval_hours` | `24` |
+| `SEEDBOX_SCHEDULE` | `service.schedule` (`"04:00"`, `"sun 04:00"`, `"mon,thu 03:30"`) | empty |
+| `SEEDBOX_INTERVAL_HOURS` | `service.interval_hours` (used when no schedule) | `24` |
 | `SEEDBOX_PORT` | `service.port` | `8080` |
 
 ## Output
