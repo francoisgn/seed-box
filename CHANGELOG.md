@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.0
+
+- CI: GitHub Actions bumped to their Node 24 majors (docker/* v4, metadata-action v6,
+  setup-python v7).
+
 ## 0.2.0
 
 - `[service] schedule`: fixed collection times ("sun 04:00"), local time (TZ).
