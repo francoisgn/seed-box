@@ -1,0 +1,5 @@
+*
+!seedbox/
+!pyproject.toml
+!README.md
+**/__pycache__

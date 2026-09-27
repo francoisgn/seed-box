@@ -1,0 +1,40 @@
+# seedbox configuration. Copy to seedbox.toml (or /config/seedbox.toml in the
+# container) and adapt. Every key can be overridden by an environment
+# variable (see README), secrets preferably so.
+
+[library]
+# Library roots as seen by seedbox (inside the container: the mount points).
+roots = ["/media/movies", "/media/tv"]
+# How deep to look for the folder that holds the media files.
+max_depth = 4
+# Folders never walked (cross-seed link dir, NAS metadata, recycle bins).
+# skip_dirs = [".cross-seed", "@eaDir", "#recycle", "#snapshot", ".Trash-1000"]
+# media_ext = [".mkv", ".mp4", ".avi", ".m4v", ".ts", ".iso"]
+
+[qbittorrent]
+url = "http://qbittorrent:8080"
+username = "admin"
+# password = ""   # better: SEEDBOX_QBT_PASSWORD or SEEDBOX_QBT_PASSWORD_FILE
+
+# Paths reported by qBittorrent -> same location as seen by seedbox.
+# Both must be the same filesystem: matching is done by inode.
+[qbittorrent.path_map]
+"/downloads" = "/media/downloads"
+
+[prowlarr]
+# Optional. Empty url = disabled.
+url = "http://prowlarr:9696"
+# api_key = ""    # better: SEEDBOX_PROWLARR_API_KEY or SEEDBOX_PROWLARR_API_KEY_FILE
+
+# Host (announce or indexer site) -> tracker name, when the announce domain
+# differs from the site domain, or to merge several hosts into one tracker.
+[trackers.aliases]
+# "announce.tracker-a.example" = "tracker-a.example"
+
+[output]
+dir = "/data"
+csv_delimiter = ","   # ";" opens straight in Excel with a French locale
+
+[service]
+interval_hours = 24   # `seedbox run`: collection period
+port = 8080           # `seedbox run`: dashboard HTTP port

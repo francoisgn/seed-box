@@ -1,0 +1,13 @@
+# Personal deployment notes, configs and data: never versioned.
+local/
+.env
+seedbox.toml
+out/
+data/
+
+__pycache__/
+*.egg-info/
+.venv/
+build/
+dist/
+.ruff_cache/
