@@ -129,6 +129,20 @@ pre-commit install
 python3 -m unittest discover -s tests -v
 ```
 
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+
+## License
+
+[PolyForm Strict 1.0.0](LICENSE): source-available, **not** open source.
+
+- You may **use** the tool for any noncommercial purpose, e.g. on your own seedbox.
+- You may **not** copy, redistribute, reuse the code elsewhere, modify it
+  outside of contributions, use it commercially, or build a competing product.
+- **Contributions are welcome**: forking and changing the code to submit an
+  issue or a pull request is explicitly allowed, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Support
 
 If this helps you keep your ratio healthy, you can buy me a coffee:

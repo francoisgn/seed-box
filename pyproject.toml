@@ -7,6 +7,8 @@ name = "seedbox"
 dynamic = ["version"]
 description = "Seeding coverage dashboard: library on disk vs qBittorrent vs Prowlarr"
 readme = "README.md"
+license = "LicenseRef-PolyForm-Strict-1.0.0"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = []
 

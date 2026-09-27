@@ -1,12 +1,14 @@
 FROM python:3.13-slim
 
 LABEL org.opencontainers.image.source="https://github.com/francoisgn/seed-box" \
+      org.opencontainers.image.licenses="LicenseRef-PolyForm-Strict-1.0.0" \
       org.opencontainers.image.description="Seeding coverage dashboard: library vs qBittorrent vs Prowlarr"
 
 # Config: /config/seedbox.toml if mounted, and/or SEEDBOX_* variables.
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 SEEDBOX_OUTPUT_DIR=/data
 
 WORKDIR /app
+COPY LICENSE ./
 COPY seedbox/ seedbox/
 RUN mkdir -p /data && chown 1000:1000 /data
 
