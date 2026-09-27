@@ -5,7 +5,8 @@ import unittest
 from datetime import datetime
 from unittest import mock
 
-from seedbox import collect, config, dashboard, library, report, schedule, trackers
+from seedbox import collect, config, dashboard, library, qbittorrent, report, schedule, trackers
+from seedbox.api import ApiError
 
 
 def touch(path, size=10):
@@ -95,6 +96,25 @@ class ConfigLoading(unittest.TestCase):
             self.assertRaises(config.ConfigError),
         ):
             config.load()
+
+
+class QbtLogin(unittest.TestCase):
+    """Login answers of old ("200 Ok." / "200 Fails.") and recent (204 / 401) qBittorrent."""
+
+    def login(self, status, body):
+        headers = mock.Mock()
+        headers.get_all.return_value = ["SID=abc; HttpOnly; path=/"]
+        with mock.patch.object(qbittorrent, "request", return_value=(status, body, headers)):
+            return qbittorrent.QbtClient("http://q", "admin", "pw")
+
+    def test_success(self):
+        self.assertEqual(self.login(200, "Ok.").cookie, "SID=abc")
+        self.assertEqual(self.login(204, "").cookie, "SID=abc")
+
+    def test_failure(self):
+        for status, body in ((200, "Fails."), (401, "Unauthorized"), (403, "")):
+            with self.assertRaises(ApiError):
+                self.login(status, body)
 
 
 class SecretsFile(unittest.TestCase):

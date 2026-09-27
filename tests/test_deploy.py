@@ -20,7 +20,7 @@ exec sh -c "$last"
 # Records its arguments; `exec` answers like `seedbox check`.
 FAKE_COMPOSE = """#!/bin/sh
 echo "$*" >> "$COMPOSE_LOG"
-case $3 in exec) echo "ok      qBittorrent reachable"; exit "${CHECK_RC:-0}" ;; esac
+case "$1 $3" in "exec "* | *" exec") echo "ok      qBittorrent reachable"; exit "${CHECK_RC:-0}" ;; esac
 """
 
 
@@ -58,6 +58,7 @@ class DeployScript(unittest.TestCase):
             "include ~/dotfiles/private.conf\n"
             f'DEPLOY_DIR="{self.remote}"\n'
             f"DEPLOY_COMPOSE={os.path.join(bin_dir, 'compose')}\n"
+            f"DEPLOY_DOCKER={os.path.join(bin_dir, 'compose')}\n"
             "TZ = Europe/Paris\n",
         )
         self.env = {
@@ -130,7 +131,7 @@ class DeployScript(unittest.TestCase):
             [
                 "-f compose.yaml pull -q",
                 "-f compose.yaml up -d --remove-orphans",
-                "-f compose.yaml exec -T seedbox python -m seedbox check",
+                "exec seedbox python -m seedbox check",
             ],
         )
         self.assertIn("seedbox check passed", result.stdout)

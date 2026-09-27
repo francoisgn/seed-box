@@ -19,6 +19,9 @@ DEPLOY_DIR=/srv/seedbox
 # Synology: sudo /usr/local/bin/docker-compose, or .../docker compose on recent
 # DSM (full path: /usr/local/bin is not in PATH over non-interactive SSH).
 DEPLOY_COMPOSE=docker compose
+# Docker CLI on the host, for `docker exec seedbox ...` (the final check).
+# Synology: sudo /usr/local/bin/docker
+DEPLOY_DOCKER=docker
 
 # --- Application config (no secret in it), your own copy of seedbox.example.toml.
 SEEDBOX_TOML=~/.config/seedbox/seedbox.toml

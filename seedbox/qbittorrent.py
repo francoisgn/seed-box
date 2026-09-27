@@ -24,9 +24,11 @@ class QbtClient:
             {"username": username, "password": password},
             {"Referer": self.base},
         )
+        # Success: "200 Ok." on older qBittorrent, "204" with an empty body on recent
+        # ones. Failure: "200 Fails." before, "401 Unauthorized" now; 403 = IP banned.
         if status == 403:
             raise ApiError("qBittorrent: IP banned after too many failed logins")
-        if status != 200 or text.strip() not in ("Ok.", ""):
+        if status not in (200, 204) or text.strip() not in ("Ok.", ""):
             raise ApiError(f"qBittorrent: login refused ({text.strip()[:60] or status}), check username/password")
         for value in headers.get_all("Set-Cookie") or []:
             if value.startswith("SID=") or "SID=" in value.split(";")[0]:

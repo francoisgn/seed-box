@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.1
+
+- qBittorrent: accept the `204` login answer of recent versions (was reported
+  as "login refused"); failed logins now answer `401`.
+- Deploy script: final check through `docker exec` (`DEPLOY_DOCKER`), since
+  Compose v1 `exec` needs `docker` in the PATH.
+
 ## 0.4.0
 
 - `deploy/deploy.sh`: portable (POSIX sh) deploy over SSH from a local deploy

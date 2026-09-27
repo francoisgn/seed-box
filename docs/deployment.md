@@ -32,9 +32,9 @@ On the host:
 - SSH access for a user whose **uid is the container user** (`PUID`): it owns
   the deployed files, which are `600`. The script checks this and refuses a
   mismatch.
-- That user may run Docker Compose non-interactively: member of the `docker`
-  group, or a `sudoers` rule without password for the docker binary, e.g.
-  `seedbox ALL=(root) NOPASSWD: /usr/local/bin/docker`.
+- That user may run Docker Compose and the docker CLI non-interactively:
+  member of the `docker` group, or `sudoers` rules without password, e.g.
+  `seedbox ALL=(root) NOPASSWD: /usr/local/bin/docker, /usr/local/bin/docker-compose`.
 - That user can create `DEPLOY_DIR` and read the media under `MEDIA_ROOT`.
 - Library and torrent data on **one filesystem**, under `MEDIA_ROOT`
   (matching is done by inode).
@@ -68,6 +68,7 @@ errors (typos do not go unnoticed). Values are never executed, except the
 | `DEPLOY_USER`, `DEPLOY_PORT`, `DEPLOY_SSH_KEY` | from `~/.ssh/config` | SSH user, port, private key (`IdentitiesOnly` is set with a key) |
 | `DEPLOY_DIR` | *(required)* | absolute remote directory |
 | `DEPLOY_COMPOSE` | `docker compose` | compose command on the host, e.g. `sudo /usr/local/bin/docker-compose` (v1 is fine) |
+| `DEPLOY_DOCKER` | `docker` | docker CLI on the host, for the final `docker exec seedbox …` check, e.g. `sudo /usr/local/bin/docker` |
 | `SEEDBOX_TOML` | *(required)* | local app config, your copy of `seedbox.example.toml` |
 | `QBT_PASSWORD_CMD` / `QBT_PASSWORD` | empty | command printing the qBittorrent password, or the value |
 | `PROWLARR_API_KEY_CMD` / `PROWLARR_API_KEY` | empty | same for the Prowlarr API key |
@@ -102,7 +103,7 @@ config files then contain nothing that must not leak, only where to find it.
                               one SSH connection (multiplexed)
                                             v
  host: DEPLOY_DIR/  <── tar over ssh, files 600, secrets/ 700, data/ kept
-        compose pull -q  ->  compose up -d  ->  compose exec seedbox python -m seedbox check
+        compose pull -q  ->  compose up -d  ->  docker exec seedbox python -m seedbox check
 ```
 
 1. Load and validate the config; run the `*_CMD` secret commands.

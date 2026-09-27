@@ -70,7 +70,7 @@ spin() {
 
 REPO_DIR=$(cd "$(dirname "$0")/.." && pwd)
 
-KEYS=" DEPLOY_HOST DEPLOY_USER DEPLOY_PORT DEPLOY_SSH_KEY DEPLOY_DIR DEPLOY_COMPOSE COMPOSE_TEMPLATE
+KEYS=" DEPLOY_HOST DEPLOY_USER DEPLOY_PORT DEPLOY_SSH_KEY DEPLOY_DIR DEPLOY_COMPOSE DEPLOY_DOCKER COMPOSE_TEMPLATE
   SEEDBOX_TOML SEEDBOX_VERSION PUID PGID TZ MEDIA_ROOT SEEDBOX_PORT
   QBT_PASSWORD QBT_PASSWORD_CMD PROWLARR_API_KEY PROWLARR_API_KEY_CMD "
 PATH_KEYS=" DEPLOY_SSH_KEY COMPOSE_TEMPLATE SEEDBOX_TOML "
@@ -180,6 +180,7 @@ while IFS= read -r kv; do
 done <"$WORK/conf"
 
 : "${C_DEPLOY_COMPOSE:=docker compose}"
+: "${C_DEPLOY_DOCKER:=docker}"
 : "${C_COMPOSE_TEMPLATE:=$REPO_DIR/compose.example.yaml}"
 : "${C_TZ:=UTC}"
 : "${C_SEEDBOX_PORT:=8080}"
@@ -217,9 +218,12 @@ rssh() {
 RDIR=$(q "$C_DEPLOY_DIR")
 # -f: Compose v1 (docker-compose, e.g. Synology) does not look for compose.yaml by itself.
 compose() { rssh "cd $RDIR && $C_DEPLOY_COMPOSE -f compose.yaml $1"; }
+# `docker exec`, not `compose exec`: Compose v1 shells out to a `docker` it looks
+# up in PATH, which sudo and non-interactive SSH may not provide.
+check() { rssh "$C_DEPLOY_DOCKER exec seedbox python -m seedbox check"; }
 
 if [ "$MODE" = check ]; then
-  compose "exec -T seedbox python -m seedbox check"
+  check
   exit $?
 fi
 
@@ -283,7 +287,7 @@ spin "Upload config, secrets and compose file" upload || exit 1
 spin "Pull image ghcr.io/francoisgn/seed-box:$C_SEEDBOX_VERSION" compose "pull -q" || exit 1
 spin "Start container" compose "up -d --remove-orphans" || exit 1
 rc=0
-compose "exec -T seedbox python -m seedbox check" >"$WORK/check.log" 2>&1 || rc=$?
+check >"$WORK/check.log" 2>&1 || rc=$?
 sed 's/^/        /' "$WORK/check.log"
 if [ "$rc" -ne 0 ]; then
   die "seedbox check reported problems (see above); container left running"
