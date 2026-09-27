@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 - `deploy/deploy.sh`: portable (POSIX sh) deploy over SSH from a local deploy
   config with `include` support (dotfiles), secrets from commands (keychain,
@@ -10,6 +10,7 @@
   file means "not set".
 - Compose template mounts `secrets/`; `seedbox.example.toml` no longer holds secrets.
 - ShellCheck in pre-commit.
+- Compose v1 (`docker-compose`) supported: `-f compose.yaml` always passed.
 
 ## 0.3.0
 

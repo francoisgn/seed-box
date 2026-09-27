@@ -215,7 +215,8 @@ rssh() {
 }
 
 RDIR=$(q "$C_DEPLOY_DIR")
-compose() { rssh "cd $RDIR && $C_DEPLOY_COMPOSE $1"; }
+# -f: Compose v1 (docker-compose, e.g. Synology) does not look for compose.yaml by itself.
+compose() { rssh "cd $RDIR && $C_DEPLOY_COMPOSE -f compose.yaml $1"; }
 
 if [ "$MODE" = check ]; then
   compose "exec -T seedbox python -m seedbox check"

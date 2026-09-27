@@ -67,7 +67,7 @@ errors (typos do not go unnoticed). Values are never executed, except the
 | `DEPLOY_HOST` | *(required)* | host name, IP or `~/.ssh/config` alias |
 | `DEPLOY_USER`, `DEPLOY_PORT`, `DEPLOY_SSH_KEY` | from `~/.ssh/config` | SSH user, port, private key (`IdentitiesOnly` is set with a key) |
 | `DEPLOY_DIR` | *(required)* | absolute remote directory |
-| `DEPLOY_COMPOSE` | `docker compose` | compose command on the host, e.g. `sudo /usr/local/bin/docker compose` |
+| `DEPLOY_COMPOSE` | `docker compose` | compose command on the host, e.g. `sudo /usr/local/bin/docker-compose` (v1 is fine) |
 | `SEEDBOX_TOML` | *(required)* | local app config, your copy of `seedbox.example.toml` |
 | `QBT_PASSWORD_CMD` / `QBT_PASSWORD` | empty | command printing the qBittorrent password, or the value |
 | `PROWLARR_API_KEY_CMD` / `PROWLARR_API_KEY` | empty | same for the Prowlarr API key |
@@ -143,6 +143,8 @@ still works for setups without the script.
   bytes and its `$TMPDIR` is too long.
 - Non-interactive SSH sessions often lack `/usr/local/bin` in `PATH`
   (Synology): give the full path in `DEPLOY_COMPOSE`.
+- Compose v1 (`docker-compose`, older Synology DSM) and the v2 plugin both
+  work: the script always passes `-f compose.yaml`.
 - `.env` values are written single-quoted; quotes and newlines are refused.
 
 ## Checklist

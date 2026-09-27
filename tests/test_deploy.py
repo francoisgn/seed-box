@@ -20,7 +20,7 @@ exec sh -c "$last"
 # Records its arguments; `exec` answers like `seedbox check`.
 FAKE_COMPOSE = """#!/bin/sh
 echo "$*" >> "$COMPOSE_LOG"
-case $1 in exec) echo "ok      qBittorrent reachable"; exit "${CHECK_RC:-0}" ;; esac
+case $3 in exec) echo "ok      qBittorrent reachable"; exit "${CHECK_RC:-0}" ;; esac
 """
 
 
@@ -125,7 +125,14 @@ class DeployScript(unittest.TestCase):
             self.assertIn(f"PUID='{os.getuid()}'", handle.read())
         with open(self.env["COMPOSE_LOG"]) as handle:
             calls = handle.read().splitlines()
-        self.assertEqual(calls, ["pull -q", "up -d --remove-orphans", "exec -T seedbox python -m seedbox check"])
+        self.assertEqual(
+            calls,
+            [
+                "-f compose.yaml pull -q",
+                "-f compose.yaml up -d --remove-orphans",
+                "-f compose.yaml exec -T seedbox python -m seedbox check",
+            ],
+        )
         self.assertIn("seedbox check passed", result.stdout)
         self.assertNotIn("p@ss", result.stdout + result.stderr)
 
