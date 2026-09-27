@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.5.0
 
 - `seedbox status`: what qBittorrent is busy with right now (rechecks and bytes
   left to read, moves, errors, disk queue, recent moves/removals/errors from the
