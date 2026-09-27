@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0
 
 - `[service] schedule`: fixed collection times ("sun 04:00"), local time (TZ).
 - Warning when the config file holds secrets and is readable by others.
