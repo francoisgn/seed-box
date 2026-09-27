@@ -103,7 +103,7 @@ config files then contain nothing that must not leak, only where to find it.
                               one SSH connection (multiplexed)
                                             v
  host: DEPLOY_DIR/  <── tar over ssh, files 600, secrets/ 700, data/ kept
-        compose pull -q  ->  compose up -d  ->  docker exec seedbox python -m seedbox check
+        compose pull -q  ->  compose up -d --force-recreate  ->  docker exec seedbox python -m seedbox check
 ```
 
 1. Load and validate the config; run the `*_CMD` secret commands.

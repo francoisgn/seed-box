@@ -130,7 +130,7 @@ class DeployScript(unittest.TestCase):
             calls,
             [
                 "-f compose.yaml pull -q",
-                "-f compose.yaml up -d --remove-orphans",
+                "-f compose.yaml up -d --force-recreate --remove-orphans",
                 "exec seedbox python -m seedbox check",
             ],
         )

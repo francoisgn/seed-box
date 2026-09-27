@@ -287,7 +287,9 @@ upload() {
 info "seedbox $C_SEEDBOX_VERSION -> $TARGET:$C_DEPLOY_DIR"
 spin "Upload config, secrets and compose file" upload || exit 1
 spin "Pull image ghcr.io/francoisgn/seed-box:$C_SEEDBOX_VERSION" compose "pull -q" || exit 1
-spin "Start container" compose "up -d --remove-orphans" || exit 1
+# --force-recreate: seedbox.toml is a single-file bind mount; tar replaced the
+# file (new inode) and a running container would keep reading the old one.
+spin "Start container" compose "up -d --force-recreate --remove-orphans" || exit 1
 rc=0
 check >"$WORK/check.log" 2>&1 || rc=$?
 sed 's/^/        /' "$WORK/check.log"

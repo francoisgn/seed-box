@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Deploy: `up -d --force-recreate`, so a changed `seedbox.toml` (single-file bind
+  mount, replaced by the upload) is actually seen by the container.
+
 ## 0.5.0
 
 - `seedbox status`: what qBittorrent is busy with right now (rechecks and bytes
