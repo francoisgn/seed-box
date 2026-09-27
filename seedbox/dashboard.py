@@ -53,6 +53,8 @@ button[aria-pressed=true]{color:var(--text);border-color:var(--accent)}
 :focus-visible{outline:2px solid var(--accent);outline-offset:1px}
 ul.warn{margin:0;padding-left:18px} ul.warn li{margin:2px 0}
 details summary{cursor:pointer;color:var(--muted);font-size:13px}
+.live{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;margin:0 0 10px}
+.live b{font-weight:600}
 .foot{color:var(--muted);font-size:12px;margin-top:36px;border-top:1px solid var(--line);padding-top:14px}
 @media(max-width:700px){.kpi b{font-size:44px} .opt{display:none}}
 """
@@ -205,6 +207,69 @@ if (D.unmatched.length) {
       el('span',{'class':'muted',text:u.path || 'unknown path'})]));
   });
 }
+
+// qBittorrent activity (live): only when served by `seedbox run`
+(function(){
+  var btn = $('live-refresh'), out = $('live');
+  if (location.protocol === 'file:') {
+    btn.disabled = true;
+    out.appendChild(el('p',{'class':'muted',text:'Live status needs the page served by seedbox run.'}));
+    return;
+  }
+  var LV = {info:'var(--muted)', warn:'var(--warn)', ko:'var(--ko)'};
+  function size(n){ return n >= GIB ? fix(n/GIB,1)+' GiB' : fix(n/1048576,1)+' MiB'; }
+  function show(st){
+    out.textContent = '';
+    var io = st.io, wait = io.average_time_queue_ms;
+    var ioColor = wait >= 1000 ? 'var(--ko)' : io.queued_io_jobs ? 'var(--warn)' : 'var(--ok)';
+    out.appendChild(el('div',{'class':'live'},[
+      el('span',{},[el('i',{'class':'dot',style:'background:'+ioColor}),
+        document.createTextNode('disk queue '),el('b',{text:io.queued_io_jobs+' jobs · '+wait+' ms'})]),
+      el('span',{},[document.createTextNode('rechecks '),
+        el('b',{text:st.checking.count+' · '+size(st.checking.bytes)+' to read'})]),
+      el('span',{},[document.createTextNode('up '),el('b',{text:size(io.up_speed)+'/s'}),
+        document.createTextNode(' · down '),el('b',{text:size(io.dl_speed)+'/s'}),
+        document.createTextNode(' · '+io.peers+' peers')])
+    ]));
+    out.appendChild(el('p',{'class':'muted',text:'qBittorrent '+st.version+' · '+st.torrents+' torrents: '
+      + Object.keys(st.states).map(function(k){ return st.states[k]+' '+k; }).join(', ')
+      + ' · '+new Date(st.generated).toLocaleTimeString()}));
+    var rows = st.busy.map(function(b){
+      var c = (b.state === 'error' || b.state === 'missingFiles') ? 'var(--ko)' : 'var(--warn)';
+      return el('tr',{},[
+        el('td',{},[el('i',{'class':'dot',style:'background:'+c}),document.createTextNode(b.state)]),
+        el('td',{text:b.name}),
+        el('td',{'class':'muted opt',text:b.category}),
+        el('td',{'class':'num',text:size(b.size)}),
+        el('td',{'class':'num',text:fix(b.progress*100,1)+' %'})
+      ]);
+    });
+    if (!rows.length) rows = [el('tr',{},[el('td',{colspan:5,'class':'muted',text:'Nothing moving, checking or in error.'})])];
+    out.appendChild(el('div',{'class':'scroll'},[el('table',{},[
+      el('thead',{},[el('tr',{},[el('th',{text:'State'}),el('th',{text:'Torrent'}),el('th',{'class':'opt',text:'Category'}),
+        el('th',{'class':'num',text:'Size'}),el('th',{'class':'num',text:'Progress'})])]),
+      el('tbody',{},rows)])]));
+    if (st.events.length) {
+      out.appendChild(el('details',{},[el('summary',{text:st.events.length+' recent moves, removals and errors (log)'}),
+        el('ul',{'class':'warn'},st.events.slice().reverse().map(function(e){
+          return el('li',{},[el('span',{'class':'muted',text:new Date(e.time).toLocaleString()+' '}),
+            el('span',{style:'color:'+LV[e.level],text:e.message})]);
+        }))]));
+    }
+    out.appendChild(el('p',{'class':'muted',text:'Limits: '+Object.keys(st.settings).map(function(k){
+      return k+'='+st.settings[k]; }).join(', ')}));
+  }
+  function load(){
+    btn.disabled = true; btn.textContent = 'Loading…';
+    fetch('api/status',{cache:'no-store'}).then(function(r){
+      return r.json().then(function(j){ if (!r.ok) throw new Error(j.error || r.status); return j; });
+    }).then(show).catch(function(e){
+      out.textContent = '';
+      out.appendChild(el('p',{style:'color:var(--ko)',text:'qBittorrent status failed: '+e.message}));
+    }).then(function(){ btn.disabled = false; btn.textContent = 'Refresh'; });
+  }
+  btn.addEventListener('click', load);
+})();
 """
 
 PAGE = """<!DOCTYPE html>
@@ -218,6 +283,11 @@ PAGE = """<!DOCTYPE html>
 <div class="kpi"><b id="coverage"></b><span class="muted">of the library is shared on at least one tracker</span></div>
 <div class="gauge" id="gauge"></div>
 <div class="legend" id="legend"></div>
+
+<h2>qBittorrent activity</h2>
+<div class="controls"><button id="live-refresh">Refresh</button>
+<span class="muted">rechecks, moves and errors right now; removals only show in the log</span></div>
+<div id="live"></div>
 
 <h2>Trackers</h2>
 <p class="muted" id="noprowlarr" hidden>Prowlarr not configured: only trackers seen in qBittorrent are listed.</p>

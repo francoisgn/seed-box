@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- `seedbox status`: what qBittorrent is busy with right now (rechecks and bytes
+  left to read, moves, errors, disk queue, recent moves/removals/errors from the
+  log, queueing and disk limits). Same data at `GET /api/status` under
+  `seedbox run`, shown by the dashboard's "qBittorrent activity" panel (Refresh
+  button). `deploy/deploy.sh --status` runs it in the deployed container.
+- qBittorrent 5.x: session cookie `QBT_SID_<port>` accepted (was only `SID`,
+  so every API call after login answered 403).
+
 ## 0.4.1
 
 - qBittorrent: accept the `204` login answer of recent versions (was reported

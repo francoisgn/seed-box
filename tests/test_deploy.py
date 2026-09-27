@@ -137,6 +137,13 @@ class DeployScript(unittest.TestCase):
         self.assertIn("seedbox check passed", result.stdout)
         self.assertNotIn("p@ss", result.stdout + result.stderr)
 
+    def test_status_only_runs_status(self):
+        result = self.run_script("--status")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        with open(self.env["COMPOSE_LOG"]) as handle:
+            self.assertEqual(handle.read().splitlines(), ["exec seedbox python -m seedbox status"])
+        self.assertFalse(os.path.exists(self.remote))
+
     def test_deploy_fails_when_check_fails(self):
         result = self.run_script(env={"CHECK_RC": "1"})
         self.assertEqual(result.returncode, 1)

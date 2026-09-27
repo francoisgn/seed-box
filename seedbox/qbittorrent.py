@@ -30,8 +30,10 @@ class QbtClient:
             raise ApiError("qBittorrent: IP banned after too many failed logins")
         if status not in (200, 204) or text.strip() not in ("Ok.", ""):
             raise ApiError(f"qBittorrent: login refused ({text.strip()[:60] or status}), check username/password")
+        # Cookie "SID" before 5.x, "QBT_SID_<port>" since.
         for value in headers.get_all("Set-Cookie") or []:
-            if value.startswith("SID=") or "SID=" in value.split(";")[0]:
+            name = value.split("=", 1)[0].strip()
+            if name == "SID" or name.startswith("QBT_SID"):
                 self.cookie = value.split(";")[0]
 
     def get(self, path, **params):
@@ -59,3 +61,12 @@ class QbtClient:
 
     def files(self, torrent_hash):
         return self.get("/api/v2/torrents/files", hash=torrent_hash) or []
+
+    def maindata(self):
+        return self.get("/api/v2/sync/maindata")
+
+    def preferences(self):
+        return self.get("/api/v2/app/preferences")
+
+    def log(self):
+        return self.get("/api/v2/log/main", last_known_id=-1) or []

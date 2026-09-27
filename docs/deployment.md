@@ -126,6 +126,7 @@ still works for setups without the script.
 | `deploy/deploy.sh --print-config` | resolved config, secrets masked, no connection |
 | `deploy/deploy.sh --render DIR` | render the files into `DIR`, no connection (contains secrets: delete it after) |
 | `deploy/deploy.sh --check` | only run `seedbox check` in the running container |
+| `deploy/deploy.sh --status` | only run `seedbox status`: rechecks, moves, errors, disk queue of qBittorrent |
 | `-c FILE` | use this deploy config |
 
 ## Upgrade, rotation, rollback

@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import os
 import tempfile
@@ -5,7 +7,7 @@ import unittest
 from datetime import datetime
 from unittest import mock
 
-from seedbox import collect, config, dashboard, library, qbittorrent, report, schedule, trackers
+from seedbox import collect, config, dashboard, library, qbittorrent, report, schedule, status, trackers, ui
 from seedbox.api import ApiError
 
 
@@ -101,9 +103,9 @@ class ConfigLoading(unittest.TestCase):
 class QbtLogin(unittest.TestCase):
     """Login answers of old ("200 Ok." / "200 Fails.") and recent (204 / 401) qBittorrent."""
 
-    def login(self, status, body):
+    def login(self, status, body, cookie="SID=abc; HttpOnly; path=/"):
         headers = mock.Mock()
-        headers.get_all.return_value = ["SID=abc; HttpOnly; path=/"]
+        headers.get_all.return_value = [cookie]
         with mock.patch.object(qbittorrent, "request", return_value=(status, body, headers)):
             return qbittorrent.QbtClient("http://q", "admin", "pw")
 
@@ -111,10 +113,14 @@ class QbtLogin(unittest.TestCase):
         self.assertEqual(self.login(200, "Ok.").cookie, "SID=abc")
         self.assertEqual(self.login(204, "").cookie, "SID=abc")
 
+    def test_cookie_name_since_5(self):
+        client = self.login(204, "", "QBT_SID_8090=abc; HttpOnly; SameSite=Strict; path=/")
+        self.assertEqual(client.cookie, "QBT_SID_8090=abc")
+
     def test_failure(self):
-        for status, body in ((200, "Fails."), (401, "Unauthorized"), (403, "")):
+        for code, body in ((200, "Fails."), (401, "Unauthorized"), (403, "")):
             with self.assertRaises(ApiError):
-                self.login(status, body)
+                self.login(code, body)
 
 
 class SecretsFile(unittest.TestCase):
@@ -297,6 +303,55 @@ class Pipeline(unittest.TestCase):
     def test_dashboard_embed_roundtrip(self):
         value = {"x": "</script><!--"}
         self.assertEqual(json.loads(dashboard._embed(value)), value)
+
+
+class FakeQbtStatus:
+    def version(self):
+        return "v5.2.3"
+
+    def torrents(self):
+        return [
+            {"state": "stalledUP", "name": "seeding", "size": 10, "progress": 1},
+            {"state": "checkingDL", "name": "queued check", "size": 100, "progress": 0, "added_on": 2},
+            {"state": "checkingDL", "name": "running check", "size": 100, "progress": 0.75, "added_on": 1},
+            {"state": "moving", "name": "move", "size": 5, "progress": 1},
+            {"state": "error", "name": "broken", "category": "cross-seed-link", "size": 7, "progress": 0},
+        ]
+
+    def maindata(self):
+        return {"server_state": {"queued_io_jobs": 14, "average_time_queue": 1136, "up_info_speed": 1024}}
+
+    def preferences(self):
+        return {"max_active_uploads": 20, "disk_io_type": 2, "web_ui_password": "never shown"}
+
+    def log(self):
+        return [
+            {"timestamp": 1, "type": 1, "message": "Torrent added"},
+            {"timestamp": 2, "type": 2, "message": "Moved torrent successfully. Torrent: x"},
+            {"timestamp": 3, "type": 4, "message": "File error alert. Torrent: y"},
+        ]
+
+
+class Status(unittest.TestCase):
+    def test_gather(self):
+        st = status.gather(FakeQbtStatus())
+        self.assertEqual(st["torrents"], 5)
+        self.assertEqual(st["states"]["checkingDL"], 2)
+        # Moves first, then checks (running one first), then errors; plain seeding left out.
+        self.assertEqual([b["name"] for b in st["busy"]], ["move", "running check", "queued check", "broken"])
+        self.assertEqual(st["checking"], {"count": 2, "bytes": 125})
+        self.assertEqual(st["io"]["queued_io_jobs"], 14)
+        self.assertEqual(st["settings"], {"max_active_uploads": 20, "disk_io_type": 2})
+        self.assertEqual([e["level"] for e in st["events"]], ["info", "warn"])
+
+    def test_show(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
+            status.show(status.gather(FakeQbtStatus()), ui)
+        text = out.getvalue()
+        self.assertIn("running check", text)
+        self.assertIn("1136 ms", text)
+        self.assertIn("max_active_uploads=20", text)
 
 
 if __name__ == "__main__":

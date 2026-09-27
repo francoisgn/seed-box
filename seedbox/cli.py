@@ -3,11 +3,12 @@
 import argparse
 import functools
 import http.server
+import json
 import os
 import threading
 import time
 
-from seedbox import __version__, collect, prowlarr, report, ui
+from seedbox import __version__, collect, prowlarr, report, status, ui
 from seedbox import schedule as sched
 from seedbox.api import ApiError
 from seedbox.config import ConfigError, load
@@ -72,7 +73,34 @@ def cmd_check(cfg):
     return rc
 
 
-class _QuietHandler(http.server.SimpleHTTPRequestHandler):
+def cmd_status(cfg):
+    """What qBittorrent is busy with: rechecks, moves, errors, disk queue."""
+    with ui.Spinner("Asking qBittorrent"):
+        st = status.gather(QbtClient(cfg.qbt_url, cfg.qbt_username, cfg.qbt_password))
+    status.show(st, ui)
+    return 0
+
+
+class _Handler(http.server.SimpleHTTPRequestHandler):
+    """Serves the output directory, plus GET /api/status (live, read-only)."""
+
+    cfg = None
+
+    def do_GET(self):
+        if self.path.split("?")[0] != "/api/status":
+            return super().do_GET()
+        try:
+            code, body = 200, status.gather(QbtClient(self.cfg.qbt_url, self.cfg.qbt_username, self.cfg.qbt_password))
+        except ApiError as exc:
+            code, body = 502, {"error": str(exc)}
+        data = json.dumps(body, ensure_ascii=False).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
     def log_message(self, *args):
         pass
 
@@ -96,7 +124,8 @@ def _wait(cfg):
 def cmd_run(cfg):
     """Serve the output directory, collect at start then on schedule."""
     os.makedirs(cfg.output_dir, exist_ok=True)
-    handler = functools.partial(_QuietHandler, directory=cfg.output_dir)
+    _Handler.cfg = cfg
+    handler = functools.partial(_Handler, directory=cfg.output_dir)
     server = http.server.ThreadingHTTPServer(("0.0.0.0", cfg.port), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     ui.ok(f"serving {cfg.output_dir} on port {cfg.port}, collection {_schedule_text(cfg)}")
@@ -116,15 +145,15 @@ def main(argv=None):
         "command",
         nargs="?",
         default="collect",
-        choices=["collect", "check", "run"],
-        help="collect once (default), check the sources, or run as a service",
+        choices=["collect", "check", "status", "run"],
+        help="collect once (default), check the sources, show what qBittorrent is busy with, or run as a service",
     )
     args = parser.parse_args(argv)
     try:
         cfg = load(args.config)
         for message in cfg.warnings:
             ui.warn(message)
-        return {"collect": cmd_collect, "check": cmd_check, "run": cmd_run}[args.command](cfg)
+        return {"collect": cmd_collect, "check": cmd_check, "status": cmd_status, "run": cmd_run}[args.command](cfg)
     except (ConfigError, ApiError) as exc:
         ui.ko(str(exc))
         return 1

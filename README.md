@@ -78,6 +78,7 @@ printf '%s' 'prowlarr-api-key' > secrets/prowlarr_api_key   # empty file if unus
 chmod 600 secrets/*
 docker compose run --rm seedbox check    # validate every source
 docker compose up -d                     # collect now, then on schedule; serve on :8080
+docker compose exec seedbox seedbox status  # what qBittorrent is busy with
 ```
 
 `seedbox check` tests each source separately (library roots, path mapping,

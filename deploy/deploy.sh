@@ -15,13 +15,14 @@ set -eu
 
 usage() {
   cat <<'EOF'
-Usage: deploy/deploy.sh [-c FILE] [--print-config | --render DIR | --check]
+Usage: deploy/deploy.sh [-c FILE] [--print-config | --render DIR | --check | --status]
 
   (no option)      render, upload, pull the image, restart, run `seedbox check`
   -c, --config F   deploy config file
   --print-config   show the resolved config (secrets masked) and exit
   --render DIR     render the deployment files into DIR, no connection
   --check          only run `seedbox check` in the running container
+  --status         only run `seedbox status` (what qBittorrent is busy with)
   -h, --help       this help
 EOF
 }
@@ -145,6 +146,7 @@ while [ $# -gt 0 ]; do
     --print-config) MODE=print; shift ;;
     --render) [ $# -ge 2 ] || die "$1 needs a directory"; MODE=render; RENDER_DIR=$2; shift 2 ;;
     --check) MODE=check; shift ;;
+    --status) MODE=status; shift ;;
     -h | --help) usage; exit 0 ;;
     *) usage >&2; die "unknown argument: $1" ;;
   esac
@@ -220,10 +222,10 @@ RDIR=$(q "$C_DEPLOY_DIR")
 compose() { rssh "cd $RDIR && $C_DEPLOY_COMPOSE -f compose.yaml $1"; }
 # `docker exec`, not `compose exec`: Compose v1 shells out to a `docker` it looks
 # up in PATH, which sudo and non-interactive SSH may not provide.
-check() { rssh "$C_DEPLOY_DOCKER exec seedbox python -m seedbox check"; }
+check() { rssh "$C_DEPLOY_DOCKER exec seedbox python -m seedbox ${1:-check}"; }
 
-if [ "$MODE" = check ]; then
-  check
+if [ "$MODE" = check ] || [ "$MODE" = status ]; then
+  check "$MODE"
   exit $?
 fi
 
