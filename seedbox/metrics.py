@@ -74,12 +74,19 @@ def volumes(paths):
             vfs = os.statvfs(path)
         except OSError:
             continue
-        if st.st_dev in seen:
+        # Bind mounts of one volume can show different st_dev in a container:
+        # the filesystem's own counters identify it.
+        key = (vfs.f_blocks, vfs.f_files, vfs.f_frsize)
+        if st.st_dev in seen or key in seen:
             continue
         total = vfs.f_blocks * vfs.f_frsize
         free = vfs.f_bavail * vfs.f_frsize
-        seen[st.st_dev] = {"path": path, "total": total, "used": total - free, "free": free}
-    return list(seen.values())
+        seen[st.st_dev] = seen[key] = {"path": path, "total": total, "used": total - free, "free": free}
+    unique = []
+    for row in seen.values():
+        if row not in unique:
+            unique.append(row)
+    return unique
 
 
 class Sampler:

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.9.1
+
+- Volume usage: one volume seen through several bind mounts is shown once.
+
 ## 0.9.0
 
 Seedbox control plane: from a coverage report to a dashboard that diagnoses
