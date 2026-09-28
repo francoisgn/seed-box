@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.9.5
+
+- Copy script works on the plain-http dashboard: the clipboard API only exists
+  on secure pages, so fall back to a temporary textarea, then select the text
+  for Cmd/Ctrl+C.
+
 ## 0.9.4
 
 - Categories tile: each torrent checked against the qBittorrent category that

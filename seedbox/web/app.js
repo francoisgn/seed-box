@@ -116,6 +116,26 @@ function tip(evt, title, rows) {
 }
 function untip() { TIP.style.display = 'none'; }
 var toastTimer;
+// Clipboard API only exists on secure pages (https, localhost): on http://nas:8080
+// fall back to a temporary textarea, then to selecting the text for Cmd/Ctrl+C.
+function copyText(text, selectable) {
+  function fallback() {
+    var ta = el('textarea', {style: 'position:fixed;top:0;left:0;opacity:0'});
+    ta.value = text; document.body.appendChild(ta); ta.focus(); ta.select();
+    var ok = false;
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+    document.body.removeChild(ta);
+    if (ok) { toast('Copied.'); return; }
+    if (selectable) {
+      var range = document.createRange(); range.selectNodeContents(selectable);
+      var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(range);
+    }
+    toast('Copy blocked by the browser: the text is selected, press Cmd+C or Ctrl+C.');
+  }
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(function () { toast('Copied.'); }, fallback);
+  } else fallback();
+}
 function toast(msg) {
   var t = $('toast'); t.textContent = msg; t.style.display = 'block';
   clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.style.display = 'none'; }, 5000);
@@ -604,11 +624,12 @@ function renderMerge() {
   var right = el('div', {'class': 'c6'}, [el('div', {'class': 'kpi'}, [el('div', {'class': 'label', text: 'Without a library torrent: plain files'}),
     el('div', {'class': 'value'}, [String(m.files.length), el('small', {text: 'entries'})])])]);
   if (m.files.length) {
+    var code = el('code', {text: m.script});
     right.appendChild(el('div', {'class': 'cell-flex', style: 'margin:16px 0 8px;justify-content:space-between;flex-wrap:wrap'}, [
       el('span', {'class': 'muted small', text: 'Run on the NAS from the media share root (the folder holding films/), after the qBittorrent moves:'}),
-      el('button', {'class': 'btn sm', type: 'button', onclick: function () { navigator.clipboard.writeText(m.script).then(function () { toast('Script copied.'); }); }},
+      el('button', {'class': 'btn sm', type: 'button', onclick: function () { copyText(m.script, code); }},
         [icon('copy', 'sm'), 'Copy script'])]));
-    right.appendChild(el('div', {'class': 'cmd', style: 'max-height:160px;overflow:auto;align-items:flex-start'}, [el('code', {text: m.script})]));
+    right.appendChild(el('div', {'class': 'cmd', style: 'max-height:160px;overflow:auto;align-items:flex-start'}, [code]));
   }
   grid.appendChild(left); grid.appendChild(right);
   box.appendChild(grid);
