@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.1.1
+
+The release matching below. `1.1.0` was tagged by mistake on the 1.0.1
+commit: its image and release are identical to 1.0.1, use 1.1.1.
+
+- Release matching ("Find on trackers" in an entry's detail, `seedbox match`):
+  search the trackers through Prowlarr under every TMDB title of the film
+  (French, English, original) and its IMDb id, candidates of the exact file
+  size, proof by hashing a sample of the .torrent's pieces from the local file.
+- Apply as a background job: inject the release (stopped, pointing at the
+  library file, started only after a 100 % recheck) and/or rename the library
+  file to the release name through qBittorrent, the other torrents on the file
+  following; `mv` script for the sidecars.
+- Optional TMDB API key: `[tmdb] api_key`, `SEEDBOX_TMDB_API_KEY(_FILE)`,
+  `TMDB_API_KEY_CMD` in the deploy config.
+- Jobs list shows the progress note of background jobs.
+
 ## 1.0.1
 
 - Move destinations resolved (`realpath`) before the library-root check: a

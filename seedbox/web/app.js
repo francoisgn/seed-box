@@ -397,7 +397,7 @@ function confirmDialog(title, body, okLabel, checkbox) {
   });
 }
 
-var ACTION_TEXT = {
+var ACTION_TEXT = {inject: 'Inject release', rename: 'Rename file',
   move: 'Move', recheck: 'Recheck', start: 'Start', skip_extras: 'Skip missing extras', remove: 'Remove',
   set_category: 'Set category', apply_category: 'Apply category folder'
 };
@@ -705,7 +705,8 @@ function renderJobs() {
     var jb = el('tbody'), view = paged('jobs', list, 5, 30, 2, renderJobs);
     view.rows.forEach(function (j) {
       jb.appendChild(el('tr', {}, [el('td', {}, [jobBadge(j.status)]), el('td', {text: ACTION_TEXT[j.action] || j.action}),
-        el('td', {'class': 'name'}, [el('div', {'class': 't', title: j.name, text: j.name})]),
+        el('td', {'class': 'name'}, [el('div', {'class': 't', title: j.name, text: j.name}),
+          j.note ? el('div', {'class': 'faint small', text: j.note}) : null]),
         el('td', {'class': 'opt path', text: j.target || ''}), el('td', {'class': 'num muted', text: ago(j.submitted * 1000)})]));
     });
     jobs.appendChild(el('div', {'class': 'table-wrap'}, [el('table', {'class': 'dense'}, [el('thead', {}, [el('tr', {}, [
@@ -1031,6 +1032,7 @@ function entryDetail(e) {
   } else if (e.search_state === 'not_indexed') {
     box.appendChild(el('div', {'class': 'muted small', text: 'Not in cross-seed data folders: never searched.'}));
   }
+  if (LIVE && D.actions && S.prowlarr) box.appendChild(matchPanel(e));
   if (e._main.length) {
     var sel = el('select', {'class': 'select', 'aria-label': 'Destination folder'});
     FOLDERS.forEach(function (f) { if (f.label !== e.folder) sel.appendChild(el('option', {value: f.path, text: f.label})); });
@@ -1044,6 +1046,114 @@ function entryDetail(e) {
   }
   return box;
 }
+// ---------- release matching: find an entry on the trackers under its release name
+var MATCH = {};  // entry index -> {busy, error, res, verify: {candidate id -> result}, choice}
+var VERDICT = {exact: ['ok', 'exact size'], extras: ['info', 'size + extras'], other: ['', 'other release']};
+function matchPanel(e) {
+  var st = MATCH[e._i] || (MATCH[e._i] = {verify: {}});
+  var box = el('div', {'class': 'match'});
+  function redo() { box.replaceWith(matchPanel(e)); }
+  var tmdbIn = el('input', {'class': 'select', type: 'text', inputmode: 'numeric', placeholder: 'TMDB id (optional)',
+    'aria-label': 'TMDB id', style: 'width:160px', value: st.tmdb || ''});
+  box.appendChild(el('div', {'class': 'cell-flex', style: 'flex-wrap:wrap'}, [
+    el('b', {text: 'Find on trackers'}),
+    el('span', {'class': 'muted small', text: 'renamed file or title in another language: search every title of the film, match by exact size, prove by piece hashes'}),
+    tmdbIn,
+    el('button', {'class': 'btn sm', type: 'button', disabled: st.busy ? true : null, onclick: function (ev) {
+      ev.stopPropagation();
+      st.tmdb = tmdbIn.value.trim(); st.busy = true; st.error = null; st.res = null; st.verify = {}; redo();
+      api('api/match', {op: 'search', entry: e._i, tmdb: st.tmdb}).then(function (r) { st.res = r; }, function (err) { st.error = err.message; })
+        .then(function () { st.busy = false; redo(); });
+    }}, [icon(st.busy ? 'refresh' : 'search', st.busy ? 'sm spin' : 'sm'), st.busy ? 'Searching…' : 'Search']) ]));
+  if (st.error) box.appendChild(el('p', {'class': 'small', style: 'color:var(--ko)', text: st.error}));
+  var r = st.res;
+  if (!r) return box;
+  var id = r.identity;
+  box.appendChild(el('p', {'class': 'muted small', text: 'Searched as ' + id.titles.join(' / ') + ' ' + id.year +
+    (id.id ? ' · TMDB ' + id.id : '') + (id.imdb ? ' · ' + id.imdb : '') + ' on ' + r.trackers.join(', ') +
+    ' · local file ' + r.entry.file + ' (' + r.entry.size.toLocaleString() + ' bytes)'}));
+  if (id.alternatives && id.alternatives.length > 1) {
+    box.appendChild(el('p', {'class': 'faint small', text: 'Not this film? Other TMDB matches: ' +
+      id.alternatives.slice(1).map(function (a) { return a.title + ' (' + a.year + ') #' + a.id; }).join(' · ')}));
+  }
+  r.errors.forEach(function (msg) { box.appendChild(el('p', {'class': 'small', style: 'color:var(--warn)', text: msg})); });
+  if (!r.candidates.length) { box.appendChild(el('p', {'class': 'empty', text: 'Nothing found on the trackers.'})); return box; }
+  var tb = el('tbody');
+  r.candidates.forEach(function (c) {
+    var v = VERDICT[c.verdict], proof = st.verify[c.id];
+    var flags = [c.seeded_there ? 'already seeded there' : '', c.in_qbt ? 'in qBittorrent' : ''].filter(Boolean).join(' · ');
+    tb.appendChild(el('tr', {}, [el('td', {}, [el('span', {'class': 'badge ' + v[0], text: v[1]})]), el('td', {}, [trackerChip(c.tracker)]),
+      el('td', {'class': 'name'}, [el('div', {'class': 't', title: c.title, text: c.title}), flags ? el('div', {'class': 'faint small', text: flags}) : null]),
+      el('td', {'class': 'num', text: c.size.toLocaleString()}), el('td', {'class': 'num', text: String(c.seeders)}),
+      el('td', {'class': 'num'}, [c.verdict === 'other' ? null : el('button', {'class': 'btn sm', type: 'button', disabled: proof === 'busy' ? true : null,
+        title: 'Fetch the .torrent and hash its pieces from the local file', onclick: function (ev) {
+          ev.stopPropagation();
+          st.verify[c.id] = 'busy'; redo();
+          api('api/match', {op: 'verify', candidate: c.id}).then(function (res) { st.verify[c.id] = res; },
+            function (err) { st.verify[c.id] = {verified: false, reason: err.message}; }).then(redo);
+        }}, [icon(proof === 'busy' ? 'refresh' : 'recheck', proof === 'busy' ? 'sm spin' : 'sm'), 'Verify'])])]));
+    if (proof && proof !== 'busy') tb.appendChild(el('tr', {'class': 'detail'}, [el('td', {colspan: 6}, [proofPanel(e, st, c, proof, redo)])]));
+  });
+  box.appendChild(el('div', {'class': 'table-wrap'}, [el('table', {'class': 'subtable'}, [el('thead', {}, [el('tr', {}, [
+    el('th', {text: 'Match'}), el('th', {text: 'Tracker'}), el('th', {text: 'Release'}), el('th', {'class': 'num', text: 'Size (bytes)'}),
+    el('th', {'class': 'num', text: 'Seeders'}), el('th', {'class': 'num', text: ''})])]), tb])]));
+  if (r.others > r.candidates.filter(function (c) { return c.verdict === 'other'; }).length) {
+    box.appendChild(el('p', {'class': 'faint small', text: r.others + ' other releases in all: uploading this file there may be refused as a dupe.'}));
+  }
+  return box;
+}
+function proofPanel(e, st, c, p, redo) {
+  var box = el('div', {'class': 'detail-grid'});
+  if (!p.verified) {
+    box.appendChild(el('p', {style: 'color:var(--ko)', text: '✗ Not the same file: ' + (p.reason || (p.failed + ' of ' + p.checked + ' pieces differ'))}));
+    return box;
+  }
+  box.appendChild(el('p', {style: 'color:var(--ok)', text: '✓ Same bytes: ' + p.checked + ' of ' + p.checked + ' pieces match (' + p.file + ', ' + p.files + ' file(s) in the torrent)'}));
+  var choice = st.choice && st.choice[c.id] !== undefined ? st.choice[c.id] : (p.names[0] || '');
+  var opts = el('div', {'class': 'chips', style: 'flex-direction:column;align-items:flex-start'});
+  p.names.concat(['']).forEach(function (n) {
+    var input = el('input', {type: 'radio', name: 'name-' + c.id, value: n});
+    if (n === choice) input.checked = true;
+    input.onchange = function () { st.choice = st.choice || {}; st.choice[c.id] = n; redo(); };
+    opts.appendChild(el('label', {'class': 'cell-flex small'}, [input, n ? el('code', {text: n}) : el('span', {text: 'keep the current name: ' + p.current})]));
+  });
+  box.appendChild(el('div', {}, [el('div', {'class': 'muted small', style: 'margin-bottom:8px', text: 'Library file name'}), opts]));
+  if (choice && p.sidecars.length) {
+    var oldStem = p.current.replace(/\.[^.]+$/, ''), newStem = choice.replace(/\.[^.]+$/, '');
+    var script = p.sidecars.map(function (s) {
+      return 'mv -n -- "' + e.folder + '/' + s + '" "' + e.folder + '/' + newStem + s.slice(oldStem.length) + '"';
+    }).join('\n');
+    var code = el('code', {text: script});
+    box.appendChild(el('div', {}, [el('div', {'class': 'cell-flex', style: 'justify-content:space-between;flex-wrap:wrap'}, [
+      el('span', {'class': 'muted small', text: 'Sidecars are not in the torrent (seedbox mounts the media read-only): rename them on the NAS, from the media share root'}),
+      el('button', {'class': 'btn sm', type: 'button', onclick: function (ev) { ev.stopPropagation(); copyText(script, code); }}, [icon('copy', 'sm'), 'Copy'])]),
+      el('div', {'class': 'cmd'}, [code])]));
+  }
+  function apply(mode, title, body) {
+    return function (ev) {
+      ev.stopPropagation();
+      confirmDialog(title, body, 'Go').then(function () {
+        return api('api/match', {op: 'apply', infohash: p.infohash, mode: mode, name: choice}).then(function () {
+          toast('Started in the background: follow it in Activity, jobs.'); refreshLive();
+        });
+      }, function () {}).catch(function (err) { toast('Failed: ' + err.message); });
+    };
+  }
+  var buttons = [];
+  if (!p.in_qbt) {
+    buttons.push(el('button', {'class': 'btn sm filled', type: 'button', onclick: apply('inject', 'Seed this release?',
+      'Adds the torrent to qBittorrent, stopped, pointing at the library file; starts it only if the recheck confirms 100 %. Nothing is downloaded into the library.')},
+      [icon('start', 'sm'), 'Inject']));
+    if (choice) buttons.push(el('button', {'class': 'btn sm', type: 'button', onclick: apply('inject_rename', 'Seed and rename?',
+      'Injects the release, then renames ' + p.current + ' to ' + choice + ' through qBittorrent; the other torrents on this file follow.')},
+      [icon('move', 'sm'), 'Inject + rename']));
+  }
+  if (choice) buttons.push(el('button', {'class': 'btn sm', type: 'button', onclick: apply('rename', 'Rename the library file?',
+    p.current + ' becomes ' + choice + ', through qBittorrent (needs a torrent on this file).')}, [icon('move', 'sm'), 'Rename only']));
+  box.appendChild(el('div', {'class': 'chips'}, buttons));
+  return box;
+}
+
 function renderLibrary() {
   var rows = visibleEntries(), body = $('lib-body'); clear(body);
   $('lib-count').textContent = rows.length + ' of ' + D.entries.length;

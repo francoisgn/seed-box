@@ -16,6 +16,7 @@ services:
       # Empty file = not set (the value from seedbox.toml, if any, applies).
       SEEDBOX_QBT_PASSWORD_FILE: /run/secrets/qbt_password
       SEEDBOX_PROWLARR_API_KEY_FILE: /run/secrets/prowlarr_api_key
+      SEEDBOX_TMDB_API_KEY_FILE: /run/secrets/tmdb_api_key
     volumes:
       - ./seedbox.toml:/config/seedbox.toml:ro
       - ./secrets:/run/secrets:ro

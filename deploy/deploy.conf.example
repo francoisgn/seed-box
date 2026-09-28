@@ -32,8 +32,11 @@ SEEDBOX_TOML=~/.config/seedbox/seedbox.toml
 # 1Password:       op read op://Private/seedbox/qbt
 QBT_PASSWORD_CMD=
 PROWLARR_API_KEY_CMD=
+# Optional: TMDB API key (free, themoviedb.org), titles for release matching.
+TMDB_API_KEY_CMD=
 # QBT_PASSWORD=
 # PROWLARR_API_KEY=
+# TMDB_API_KEY=
 
 # --- Container (.env on the host).
 # Image version: empty = the version of this checkout (git pull = upgrade).

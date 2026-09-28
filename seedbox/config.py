@@ -44,6 +44,8 @@ class Config:
 
     prowlarr_url: str = ""
     prowlarr_api_key: str = ""
+    # TMDB API key (optional): titles to search trackers with, when matching releases.
+    tmdb_api_key: str = ""
 
     # Announce or indexer host -> tracker display name, to merge hosts that
     # belong to the same tracker or give them a readable name.
@@ -80,6 +82,11 @@ class Config:
     @property
     def prowlarr_enabled(self):
         return bool(self.prowlarr_url)
+
+    @property
+    def match_enabled(self):
+        """Release matching searches the trackers through Prowlarr."""
+        return self.prowlarr_enabled
 
 
 def _env(name):
@@ -150,6 +157,8 @@ def load(path=None):
     cfg.prowlarr_url = prowlarr.get("url", cfg.prowlarr_url)
     cfg.prowlarr_api_key = prowlarr.get("api_key", cfg.prowlarr_api_key)
 
+    cfg.tmdb_api_key = data.get("tmdb", {}).get("api_key", cfg.tmdb_api_key)
+
     cfg.tracker_aliases = {k.lower(): v for k, v in data.get("trackers", {}).get("aliases", {}).items()}
 
     output = data.get("output", {})
@@ -172,6 +181,7 @@ def load(path=None):
         "SEEDBOX_QBT_PASSWORD": ("qbt_password", str),
         "SEEDBOX_PROWLARR_URL": ("prowlarr_url", str),
         "SEEDBOX_PROWLARR_API_KEY": ("prowlarr_api_key", str),
+        "SEEDBOX_TMDB_API_KEY": ("tmdb_api_key", str),
         "SEEDBOX_OUTPUT_DIR": ("output_dir", str),
         "SEEDBOX_SCHEDULE": ("schedule", str),
         "SEEDBOX_INTERVAL_HOURS": ("interval_hours", float),
@@ -200,7 +210,7 @@ def load(path=None):
             sched.parse(cfg.schedule)
         except ValueError as exc:
             raise ConfigError(str(exc)) from exc
-    if found and (qbt.get("password") or prowlarr.get("api_key")):
+    if found and (qbt.get("password") or prowlarr.get("api_key") or data.get("tmdb", {}).get("api_key")):
         mode = os.stat(found).st_mode
         if mode & (stat.S_IRWXG | stat.S_IRWXO):
             cfg.warnings.append(f"{found} holds secrets but is readable by others (mode {mode & 0o777:o}), use 600")

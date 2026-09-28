@@ -72,6 +72,7 @@ errors (typos do not go unnoticed). Values are never executed, except the
 | `SEEDBOX_TOML` | *(required)* | local app config, your copy of `seedbox.example.toml` |
 | `QBT_PASSWORD_CMD` / `QBT_PASSWORD` | empty | command printing the qBittorrent password, or the value |
 | `PROWLARR_API_KEY_CMD` / `PROWLARR_API_KEY` | empty | same for the Prowlarr API key |
+| `TMDB_API_KEY_CMD` / `TMDB_API_KEY` | empty | same for a TMDB API key (optional, release matching) |
 | `SEEDBOX_VERSION` | version of this checkout | image tag to deploy |
 | `PUID`, `PGID` | uid/gid of the SSH user | container user |
 | `TZ` | `UTC` | container time zone, used by `[service] schedule` |
@@ -88,6 +89,7 @@ include ~/Git/dotfiles/private/seedbox.conf     # host, user, key, paths
 SEEDBOX_TOML=~/Git/dotfiles/private/seedbox.toml
 QBT_PASSWORD_CMD=security find-generic-password -s seedbox-qbt -w
 PROWLARR_API_KEY_CMD=security find-generic-password -s seedbox-prowlarr -w
+TMDB_API_KEY_CMD=security find-generic-password -s seedbox-tmdb -w
 ```
 
 Keep secrets as `*_CMD` pointing to a secret store rather than values: the
@@ -99,7 +101,7 @@ config files then contain nothing that must not leak, only where to find it.
  deploy.conf (+ includes) ──┐
  seedbox.toml ──────────────┤
  secret store (*_CMD) ──────┼─> render in a private temp dir (umask 077)
- compose.example.yaml ──────┘      compose.yaml  .env  seedbox.toml  secrets/{qbt_password,prowlarr_api_key}
+ compose.example.yaml ──────┘      compose.yaml  .env  seedbox.toml  secrets/{qbt_password,prowlarr_api_key,tmdb_api_key}
                                             │
                               one SSH connection (multiplexed)
                                             v

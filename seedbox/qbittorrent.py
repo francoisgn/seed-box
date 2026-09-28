@@ -2,7 +2,7 @@
 
 import urllib.parse
 
-from seedbox.api import ApiError, decode, request
+from seedbox.api import ApiError, decode, multipart, request
 
 
 class QbtClient:
@@ -114,6 +114,29 @@ class QbtClient:
             "/api/v2/torrents/setAutoManagement",
             {"hashes": "|".join(hashes), "enable": "true" if enable else "false"},
         )
+
+    def add_torrent(self, content, save_path, category="", stopped=True):
+        """Add a .torrent: files straight in save_path (no root folder), not started,
+        no automatic management (it would move the files to the category folder)."""
+        fields = {
+            "savepath": save_path,
+            "category": category,
+            "autoTMM": "false",
+            "contentLayout": "NoSubfolder",
+            # "stopped" since qBittorrent 5.0, "paused" before.
+            "stopped": "true" if stopped else "false",
+            "paused": "true" if stopped else "false",
+        }
+        body, ctype = multipart(fields, {"torrents": ("release.torrent", content)})
+        status, text, _ = request(
+            self.base + "/api/v2/torrents/add", body, dict(self._headers(), **{"Content-Type": ctype})
+        )
+        if status not in (200, 204) or text.strip() == "Fails.":
+            raise ApiError(f"qBittorrent: torrent refused ({text.strip()[:80] or status})")
+
+    def rename_file(self, torrent_hash, old_path, new_path):
+        """Rename one file of a torrent, on disk too."""
+        self.post("/api/v2/torrents/renameFile", {"hash": torrent_hash, "oldPath": old_path, "newPath": new_path})
 
     def file_priority(self, torrent_hash, ids, priority):
         self.post(

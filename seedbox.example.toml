@@ -22,6 +22,11 @@ max_depth = 4
 # cross-seed database, read-only (deploy: CROSS_SEED_DIR). Missing file = off.
 # db = "/cross-seed/cross-seed.db"
 
+[tmdb]
+# Optional, for release matching (film titles in French, English, original).
+# Better as a secret: SEEDBOX_TMDB_API_KEY(_FILE).
+# api_key = ""
+
 [qbittorrent]
 url = "http://qbittorrent:8080"
 username = "admin"

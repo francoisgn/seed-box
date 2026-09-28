@@ -9,7 +9,7 @@
 A dashboard that answers one question, **is my library actually shared on my
 trackers, and are all my trackers fed?**, then helps fix what is not:
 duplicates, stopped torrents, failed cross-seed matches, torrents deleted by
-their tracker, unreadable files, all applied through qBittorrent in one click.
+their tracker, unreadable files, releases hidden under another name, all applied through qBittorrent in one click.
 
 It bridges three sources that do not talk to each other:
 
@@ -80,6 +80,33 @@ torrents follow their files and cross-seed hardlinks stay valid. A removal
 never deletes a library file: files can only be deleted for cross-seed link
 torrents whose content no other torrent uses.
 
+### Release matching
+
+cross-seed searches by name. A file renamed on disk, or a film released under
+its French title and stored under its English one, stays "absent" everywhere
+although the tracker has it. **Find on trackers** (in an entry's detail, with
+actions enabled) searches the other way:
+
+1. **Search**: every title TMDB knows the film under (French, English,
+   original) with its year, plus its IMDb id where the indexer supports it, on
+   each Prowlarr indexer. A result of **exactly the file's size** is a candidate;
+   the TMDB id can be given when the name is too far off.
+2. **Verify**: fetch the candidate's `.torrent` and hash a sample of its pieces
+   from the local file. Same SHA-1, same bytes: the release is proven, whatever
+   the file is called.
+3. **Apply**, as a background job:
+   - **inject**: add the torrent to qBittorrent, stopped, pointing at the library
+     file; start it only if the recheck confirms 100 % (nothing is ever
+     downloaded into the library);
+   - **rename**: rename the library file to the release name (suggestions: the
+     torrent's own file name first, then the other trackers' spellings) through
+     qBittorrent, the other torrents on that file following; sidecars (`.srt`,
+     `.nfo`) get a ready-to-run `mv` script.
+
+`seedbox match "part of the name" [--tmdb ID] [--verify]` does steps 1 and 2 from
+the command line. A TMDB API key (free) is optional: without it, the title
+parsed from the file name is searched.
+
 ### Live panels
 
 Served by `seedbox run`, the dashboard also shows:
@@ -123,6 +150,7 @@ cp seedbox.example.toml seedbox.toml  # roots, path map, schedule
 mkdir -p secrets && chmod 700 secrets
 printf '%s' 'qbt-password' > secrets/qbt_password
 printf '%s' 'prowlarr-api-key' > secrets/prowlarr_api_key   # empty file if unused
+printf '%s' 'tmdb-api-key' > secrets/tmdb_api_key           # optional, release matching
 chmod 600 secrets/*
 docker compose run --rm seedbox check    # validate every source
 docker compose up -d                     # first collection now, then on schedule; serve on :8080
@@ -171,6 +199,7 @@ the `_FILE` suffix (Docker secrets), e.g. `SEEDBOX_QBT_PASSWORD_FILE`.
 | | `qbittorrent.path_map` | none |
 | `SEEDBOX_PROWLARR_URL` | `prowlarr.url` | empty = disabled |
 | `SEEDBOX_PROWLARR_API_KEY` | `prowlarr.api_key` | |
+| `SEEDBOX_TMDB_API_KEY` | `tmdb.api_key`: film titles for release matching | empty = title from the file name |
 | | `trackers.aliases` | none |
 | `SEEDBOX_OUTPUT_DIR` | `output.dir` | `/data` |
 | | `output.csv_delimiter` | `,` |

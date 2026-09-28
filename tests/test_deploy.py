@@ -55,6 +55,7 @@ class DeployScript(unittest.TestCase):
             "SEEDBOX_TOML=seedbox.toml\n"
             "QBT_PASSWORD_CMD=printf 'p@ss w0rd'\n"
             "PROWLARR_API_KEY=abc123\n"
+            "TMDB_API_KEY_CMD=printf tmdb-key\n"
             "MEDIA_ROOT=/srv/media\n"
             "TZ=UTC\n",
         )
@@ -93,6 +94,7 @@ class DeployScript(unittest.TestCase):
         self.assertEqual(lines["SEEDBOX_TOML"], os.path.join(self.home, "dotfiles", "seedbox.toml"))
         self.assertEqual(lines["DEPLOY_DIR"], self.remote)
         self.assertEqual(lines["PROWLARR_API_KEY"], "<set>")
+        self.assertEqual(lines["TMDB_API_KEY"], "<empty>")
         self.assertEqual(lines["QBT_PASSWORD"], "<empty>")
         self.assertNotIn("abc123", result.stdout)
 
@@ -120,7 +122,13 @@ class DeployScript(unittest.TestCase):
         self.assertIn("PUID='1026'\n", env)
         self.assertIn("TZ='Europe/Paris'\n", env)
         self.assertRegex(env, r"SEEDBOX_VERSION='\d+\.\d+\.\d+'")
-        for name in (".env", "seedbox.toml", "secrets/qbt_password", "secrets/prowlarr_api_key"):
+        for name in (
+            ".env",
+            "seedbox.toml",
+            "secrets/qbt_password",
+            "secrets/prowlarr_api_key",
+            "secrets/tmdb_api_key",
+        ):
             mode = stat.S_IMODE(os.stat(os.path.join(out, name)).st_mode)
             self.assertEqual(mode, 0o600, name)
 
@@ -129,6 +137,8 @@ class DeployScript(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         with open(os.path.join(self.remote, "secrets", "prowlarr_api_key")) as handle:
             self.assertEqual(handle.read(), "abc123")
+        with open(os.path.join(self.remote, "secrets", "tmdb_api_key")) as handle:
+            self.assertEqual(handle.read(), "tmdb-key")
         self.assertTrue(os.path.isdir(os.path.join(self.remote, "data")))
         with open(os.path.join(self.remote, ".env")) as handle:
             self.assertIn(f"PUID='{os.getuid()}'", handle.read())

@@ -29,6 +29,9 @@ ACTIONS = ("move", "recheck", "start", "skip_extras", "remove", "set_category", 
 HASH = re.compile(r"^[0-9a-f]{40}$|^[0-9a-f]{64}$")
 MAX_HASHES = 500
 KEEP_DONE_S = 7 * 86400
+# Jobs run by a background worker (release matching), which writes their status.
+WORKER_ACTIONS = ("inject", "rename")
+WORKER_MAX_S = 13 * 3600
 CHECKING = ("checkingDL", "checkingUP", "checkingResumeData")
 STOPPED = ("stoppedDL", "stoppedUP", "pausedDL", "pausedUP")
 
@@ -184,6 +187,23 @@ def run(cfg, client, request):
     return created
 
 
+def add_job(cfg, fields):
+    """Record a job run by another module (release matching). Returns it."""
+    job = {"id": uuid.uuid4().hex[:12], "submitted": time.time(), "status": "pending", **fields}
+    with _lock:
+        _save_jobs(cfg, (load_jobs(cfg) + [job])[-1000:])
+    return job
+
+
+def update_job(cfg, job_id, **fields):
+    with _lock:
+        jobs = load_jobs(cfg)
+        for job in jobs:
+            if job["id"] == job_id:
+                job.update(fields)
+        _save_jobs(cfg, jobs)
+
+
 def refresh(cfg, torrents):
     """Jobs with their status from the live torrent list; prunes old finished jobs."""
     live = {t["hash"]: t for t in torrents}
@@ -207,6 +227,9 @@ def refresh(cfg, torrents):
 def _status(job, torrent, now):
     age = now - job["submitted"]
     action = job["action"]
+    if action in WORKER_ACTIONS:
+        # Status kept by the worker; one still running after a restart was interrupted.
+        return job["status"] if age < WORKER_MAX_S else "failed"
     if action == "remove":
         return "done" if torrent is None else ("pending" if age < 3600 else "failed")
     if torrent is None:

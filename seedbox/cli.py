@@ -11,7 +11,7 @@ import sys
 import threading
 from datetime import datetime
 
-from seedbox import __version__, actions, collect, metrics, prowlarr, report, status, ui
+from seedbox import __version__, actions, collect, match, metrics, prowlarr, report, status, ui
 from seedbox import schedule as sched
 from seedbox.api import ApiError
 from seedbox.config import ConfigError, fingerprint, load
@@ -121,6 +121,53 @@ def cmd_status(cfg):
     return 0
 
 
+def cmd_match(cfg, name, tmdb_id=None, verify=False):
+    """Find a library entry on the trackers under its release name (read-only:
+    applying the result is done from the dashboard)."""
+    if not name:
+        ui.ko("match: give part of the library entry name")
+        return 1
+    try:
+        snap = match.load_snapshot(cfg)
+        hits = [i for i, e in enumerate(snap["entries"]) if name.lower() in e["name"].lower()]
+        if len(hits) != 1:
+            (ui.ko if not hits else ui.warn)(f"{len(hits)} entries match {name!r}, be more precise")
+            for i in hits[:15]:
+                ui.info(f"  {snap['entries'][i]['name']}")
+            return 1
+        client = QbtClient(cfg.qbt_url, cfg.qbt_username, cfg.qbt_password)
+        with ui.Spinner("Searching the trackers"):
+            res = match.search(cfg, snap, hits[0], client, tmdb_id)
+        ident = res["identity"]
+        ui.info(f"{res['entry']['file']} ({res['entry']['size']} bytes)")
+        ui.info(
+            f"searched as {' / '.join(ident['titles'])} {ident['year']}"
+            + (f", TMDB {ident['id']}" if ident["id"] else "")
+            + (f", {ident['imdb']}" if ident["imdb"] else "")
+        )
+        for err in res["errors"]:
+            ui.warn(err)
+        close = [c for c in res["candidates"] if c["verdict"] != "other"]
+        if not close:
+            ui.warn(f"no release of this exact size ({res['others']} other releases found)")
+            return 0
+        for c in close:
+            where = " (already seeded there)" if c["seeded_there"] else " (in qBittorrent)" if c["in_qbt"] else ""
+            ui.ok(f"{c['verdict']:<6} {c['indexer']:<20} {c['title']}{where}")
+            if verify:
+                with ui.Spinner(f"Verifying on {c['indexer']}"):
+                    v = match.verify(cfg, snap, c["id"], client)
+                if v.get("verified"):
+                    rename = v["names"][0] if v["names"] else "(same name)"
+                    ui.ok(f"       verified: {v['checked']}/{v['checked']} pieces match; rename to: {rename}")
+                else:
+                    ui.ko(f"       not the same file: {v.get('reason') or str(v.get('failed')) + ' piece(s) differ'}")
+        return 0
+    except (match.MatchError, OSError) as exc:
+        ui.ko(str(exc))
+        return 1
+
+
 class _Handler(http.server.SimpleHTTPRequestHandler):
     """Serves the output directory and the dashboard API.
 
@@ -129,6 +176,7 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
     GET  /api/collect  state of the collection
     POST /api/collect  collect now
     POST /api/action   move, recheck, start, skip extras, remove ([service] actions)
+    POST /api/match    release matching: search, verify, apply ([service] actions)
 
     POSTs need the X-Seedbox header and a JSON body: a page from another site
     cannot send that without a CORS preflight, which is never granted here.
@@ -186,6 +234,9 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
         body = self.rfile.read(length)
         if path == "/api/action":
             code, result = actions.handle(self.cfg, self._client, body)
+            return self._send(code, result)
+        if path == "/api/match":
+            code, result = match.handle(self.cfg, self._client, body)
             return self._send(code, result)
         if path == "/api/collect":
             if not self.cfg.actions:
@@ -307,14 +358,20 @@ def main(argv=None):
         "command",
         nargs="?",
         default="collect",
-        choices=["collect", "check", "status", "run"],
-        help="collect once (default), check the sources, show what qBittorrent is busy with, or run as a service",
+        choices=["collect", "check", "status", "run", "match"],
+        help="collect once (default), check the sources, show what qBittorrent is busy with, run as a service, "
+        "or find a library file on the trackers (match NAME)",
     )
+    parser.add_argument("name", nargs="*", help="match: part of the library entry name")
+    parser.add_argument("--tmdb", type=int, help="match: TMDB id of the film (default: searched from the name)")
+    parser.add_argument("--verify", action="store_true", help="match: fetch the exact matches and hash their pieces")
     args = parser.parse_args(argv)
     try:
         cfg = load(args.config)
         for message in cfg.warnings:
             ui.warn(message)
+        if args.command == "match":
+            return cmd_match(cfg, " ".join(args.name), args.tmdb, args.verify)
         return {"collect": cmd_collect, "check": cmd_check, "status": cmd_status, "run": cmd_run}[args.command](cfg)
     except (ConfigError, ApiError) as exc:
         ui.ko(str(exc))

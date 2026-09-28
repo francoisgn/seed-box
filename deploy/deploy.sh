@@ -73,7 +73,7 @@ REPO_DIR=$(cd "$(dirname "$0")/.." && pwd)
 
 KEYS=" DEPLOY_HOST DEPLOY_USER DEPLOY_PORT DEPLOY_SSH_KEY DEPLOY_DIR DEPLOY_COMPOSE DEPLOY_DOCKER COMPOSE_TEMPLATE
   SEEDBOX_TOML SEEDBOX_VERSION PUID PGID TZ MEDIA_ROOT SEEDBOX_PORT CROSS_SEED_DIR
-  QBT_PASSWORD QBT_PASSWORD_CMD PROWLARR_API_KEY PROWLARR_API_KEY_CMD "
+  QBT_PASSWORD QBT_PASSWORD_CMD PROWLARR_API_KEY PROWLARR_API_KEY_CMD TMDB_API_KEY TMDB_API_KEY_CMD "
 PATH_KEYS=" DEPLOY_SSH_KEY COMPOSE_TEMPLATE SEEDBOX_TOML "
 
 has_word() { case " $(printf '%s' "$1" | tr '\n' ' ') " in *" $2 "*) return 0 ;; esac; return 1; }
@@ -197,7 +197,7 @@ if [ "$MODE" = print ]; then
   info "config:$FILES"
   for k in $KEYS; do
     eval "v=\$C_$k"
-    case $k in QBT_PASSWORD | PROWLARR_API_KEY) v=$(masked "$v") ;; esac
+    case $k in QBT_PASSWORD | PROWLARR_API_KEY | TMDB_API_KEY) v=$(masked "$v") ;; esac
     printf '%s=%s\n' "$k" "$v"
   done
   exit 0
@@ -243,6 +243,7 @@ secret() { # secret <name> <value> <command>
 }
 QBT_SECRET=$(secret QBT_PASSWORD_CMD "$C_QBT_PASSWORD" "$C_QBT_PASSWORD_CMD") || exit 1
 PROWLARR_SECRET=$(secret PROWLARR_API_KEY_CMD "$C_PROWLARR_API_KEY" "$C_PROWLARR_API_KEY_CMD") || exit 1
+TMDB_SECRET=$(secret TMDB_API_KEY_CMD "$C_TMDB_API_KEY" "$C_TMDB_API_KEY_CMD") || exit 1
 [ -n "$QBT_SECRET" ] || warn "no qBittorrent password (fine if seedbox.toml has it or the client whitelists the host)"
 
 if [ "$MODE" = deploy ]; then
@@ -265,6 +266,7 @@ cp "$C_COMPOSE_TEMPLATE" "$STAGE/compose.yaml"
 cp "$C_SEEDBOX_TOML" "$STAGE/seedbox.toml"
 printf '%s' "$QBT_SECRET" >"$STAGE/secrets/qbt_password"
 printf '%s' "$PROWLARR_SECRET" >"$STAGE/secrets/prowlarr_api_key"
+printf '%s' "$TMDB_SECRET" >"$STAGE/secrets/tmdb_api_key"
 for k in SEEDBOX_VERSION PUID PGID TZ MEDIA_ROOT SEEDBOX_PORT CROSS_SEED_DIR; do
   eval "v=\$C_$k"
   case $v in *"'"* | *'
