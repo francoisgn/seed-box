@@ -18,6 +18,9 @@ seedbox = "seedbox.cli:main"
 [tool.setuptools]
 packages = ["seedbox"]
 
+[tool.setuptools.package-data]
+seedbox = ["web/*"]
+
 [tool.setuptools.dynamic]
 version = { attr = "seedbox.__version__" }
 
@@ -31,3 +34,5 @@ select = ["E", "F", "W", "I", "B", "UP", "SIM"]
 [tool.ruff.lint.per-file-ignores]
 # Embedded CSS/JS strings.
 "seedbox/dashboard.py" = ["E501"]
+# Dense torrent fixtures, one per line.
+"tests/test_control.py" = ["E501"]

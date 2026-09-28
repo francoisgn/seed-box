@@ -1,5 +1,42 @@
 # Changelog
 
+## 0.9.0
+
+Seedbox control plane: from a coverage report to a dashboard that diagnoses
+and fixes, through qBittorrent.
+
+- Dashboard redone in Material 3 dark: navigation rail, top bar with library
+  search, KPI tiles, charts (status and torrent-state donuts, coverage per
+  tracker, seeded entries over time, torrents added per day, coverage per
+  collection, CPU/IO wait, busiest disk, memory, transfer, volume gauges),
+  tooltips on every mark, logo (Clawd, eye patch on, at an iMac) and pirate
+  flag favicon.
+- Entries: one per film when films sit side by side (`incoming`, `archives`,
+  `disney` were each one giant entry), CD1/CD2 parts grouped, season packs made
+  of one folder per episode grouped, samples ignored.
+- Matching blind spot fixed: files still named `.!qB` (incomplete or being
+  rechecked) were not found, so cross-seed torrents landed in "outside the
+  library". Each outside torrent now has a reason (only cross-seed links left,
+  other share, files missing, downloading).
+- Diagnosis per entry and torrent, with one-click fixes: same file uploaded
+  several times on one tracker (remove the extras), failed cross-seed matches
+  (0 % after recheck), stopped torrents, matches waiting for extras nobody
+  seeds (skip them), errors, several versions of a work, episodes twice, lone
+  film in a grouping folder.
+- Library filters: seeded everywhere, partially seeded, on disk not seeded,
+  downloading, problems, duplicates; folder and missing-on-tracker filters;
+  multi-select to move, recheck or start in batch.
+- Actions through qBittorrent (`[service] actions = true`): move, recheck,
+  start, skip missing extras, remove (library files are never deleted), collect
+  now. Jobs are tracked in `jobs.json`, their status read back from
+  qBittorrent; moves started elsewhere are read from its log.
+- System sampling in `seedbox run` (`metrics_interval`, 5 min): `/proc` and one
+  light qBittorrent call, 14 days in `metrics.jsonl`.
+- API: `GET /api/status`, `/api/metrics`, `/api/collect`; `POST /api/action`,
+  `/api/collect`, guarded by an `X-Seedbox` header, JSON body and same origin.
+- Log events are matched on the message, not on torrent names ("Movie").
+- History: entries are finer from this version, so the entry count jumps once.
+
 ## 0.5.1
 
 - Deploy: `up -d --force-recreate`, so a changed `seedbox.toml` (single-file bind

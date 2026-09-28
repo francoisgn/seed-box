@@ -49,12 +49,22 @@ class Config:
     # belong to the same tracker or give them a readable name.
     tracker_aliases: dict = field(default_factory=dict)
 
+    # Folders holding cross-seed links (path component names): torrents found
+    # there are linked copies, not library content.
+    link_dirs: list = field(default_factory=lambda: [".cross-seed"])
+
     output_dir: str = "/data"
     csv_delimiter: str = ","
     # `seedbox run`: fixed schedule ("sun 04:00") or, if empty, a period.
     schedule: str = ""
     interval_hours: float = 24.0
     port: int = 8080
+    # Dashboard write actions (move, recheck, start, remove torrents in qBittorrent).
+    # Off by default: the dashboard has no authentication.
+    actions: bool = False
+    # Host and qBittorrent sampling for the system charts (seconds, 0 = off).
+    metrics_interval: int = 300
+    metrics_days: int = 14
 
     source: str = ""
     warnings: list = field(default_factory=list)
@@ -117,6 +127,7 @@ def load(path=None):
     cfg.max_depth = int(library.get("max_depth", cfg.max_depth))
     cfg.skip_dirs = list(library.get("skip_dirs", cfg.skip_dirs))
     cfg.media_ext = [e.lower() for e in library.get("media_ext", cfg.media_ext)]
+    cfg.link_dirs = list(library.get("link_dirs", cfg.link_dirs))
 
     qbt = data.get("qbittorrent", {})
     cfg.qbt_url = qbt.get("url", cfg.qbt_url)
@@ -138,6 +149,9 @@ def load(path=None):
     cfg.schedule = service.get("schedule", cfg.schedule)
     cfg.interval_hours = float(service.get("interval_hours", cfg.interval_hours))
     cfg.port = int(service.get("port", cfg.port))
+    cfg.actions = bool(service.get("actions", cfg.actions))
+    cfg.metrics_interval = int(service.get("metrics_interval", cfg.metrics_interval))
+    cfg.metrics_days = int(service.get("metrics_days", cfg.metrics_days))
 
     overrides = {
         "SEEDBOX_ROOTS": ("roots", _split),
@@ -151,6 +165,8 @@ def load(path=None):
         "SEEDBOX_SCHEDULE": ("schedule", str),
         "SEEDBOX_INTERVAL_HOURS": ("interval_hours", float),
         "SEEDBOX_PORT": ("port", int),
+        "SEEDBOX_ACTIONS": ("actions", lambda v: v.strip().lower() in ("1", "true", "yes", "on")),
+        "SEEDBOX_METRICS_INTERVAL": ("metrics_interval", int),
     }
     for name, (attr, cast) in overrides.items():
         value = _env(name)
@@ -189,7 +205,7 @@ def fingerprint(cfg):
     relevant = {
         "roots": cfg.roots, "max_depth": cfg.max_depth, "skip_dirs": cfg.skip_dirs, "media_ext": cfg.media_ext,
         "qbt_url": cfg.qbt_url, "qbt_username": cfg.qbt_username, "path_map": cfg.path_map,
-        "prowlarr_url": cfg.prowlarr_url, "tracker_aliases": cfg.tracker_aliases,
+        "prowlarr_url": cfg.prowlarr_url, "tracker_aliases": cfg.tracker_aliases, "link_dirs": cfg.link_dirs,
     }  # fmt: skip
     return hashlib.sha256(json.dumps(relevant, sort_keys=True).encode()).hexdigest()[:12]
 
@@ -199,4 +215,12 @@ def map_path(cfg, path):
     for prefix, target in cfg.path_map.items():
         if path == prefix or path.startswith(prefix + "/"):
             return target + path[len(prefix) :]
+    return path
+
+
+def unmap_path(cfg, path):
+    """Inverse of map_path: a local path as qBittorrent sees it."""
+    for prefix, target in sorted(cfg.path_map.items(), key=lambda kv: -len(kv[1])):
+        if path == target or path.startswith(target + "/"):
+            return prefix + path[len(target) :]
     return path

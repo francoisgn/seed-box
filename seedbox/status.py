@@ -7,6 +7,8 @@ have no queue in libtorrent: they only show up afterwards, in the log.
 import re
 from datetime import UTC, datetime
 
+from seedbox import actions
+
 # States that mean work (or trouble) rather than plain seeding/downloading.
 BUSY = (
     "moving",
@@ -22,7 +24,7 @@ BUSY = (
 )
 CHECKING = ("checkingDL", "checkingUP", "checkingResumeData")
 # Log lines worth showing: file moves, removals, rechecks, errors.
-EVENT = re.compile(r"mov|delet|remov|recheck|error|fail", re.I)
+EVENT = re.compile(r"\b(?:move|moving|moved|deleted|removed|recheck|error|failed)\b", re.I)
 # Log types (bit flags): 1 normal, 2 info, 4 warning, 8 critical.
 LEVEL = {1: "info", 2: "info", 4: "warn", 8: "ko"}
 # Preferences that decide how much runs at once (queueing, disk).
@@ -47,8 +49,45 @@ def _iso(ts):
     return datetime.fromtimestamp(ts, UTC).isoformat(timespec="seconds")
 
 
-def gather(client, events=30):
-    """Snapshot from a QbtClient: states, busy torrents, disk queue, recent events."""
+MOVE_LOG = re.compile(
+    r"^(?P<what>Enqueued torrent move|Start moving torrent|Moved torrent successfully|Failed to move torrent)"
+    r'\. Torrent: "(?P<name>[^"]*)"'
+)
+REMOVE_LOG = re.compile(r'^Torrent (?P<what>removed|content removed)\. Torrent: "(?P<name>[^"]*)"')
+
+
+def log_moves(log):
+    """Moves seen in the log (any origin: seedbox, WebUI, *arr), latest state per torrent."""
+    moves = {}
+    for m in log:
+        found = MOVE_LOG.match(m.get("message", ""))
+        if not found:
+            continue
+        what = found.group("what")
+        state = {"Enqueued torrent move": "pending", "Start moving torrent": "running"}.get(
+            what, "done" if what.startswith("Moved") else "failed"
+        )
+        moves[found.group("name")] = {"name": found.group("name"), "status": state, "time": _iso(m["timestamp"])}
+    return list(moves.values())
+
+
+def log_removals(log, limit=50):
+    out = []
+    for m in log:
+        found = REMOVE_LOG.match(m.get("message", ""))
+        if found:
+            out.append(
+                {
+                    "name": found.group("name"),
+                    "files": found.group("what") == "content removed",
+                    "time": _iso(m.get("timestamp", 0)),
+                }
+            )
+    return out[-limit:]
+
+
+def gather(client, events=30, cfg=None):
+    """Snapshot from a QbtClient: states, busy torrents, disk queue, recent events, jobs."""
     torrents = client.torrents()
     server = (client.maindata() or {}).get("server_state", {})
     prefs = client.preferences() or {}
@@ -80,7 +119,8 @@ def gather(client, events=30):
             "message": m.get("message", ""),
         }
         for m in log
-        if EVENT.search(m.setdefault("message", ""))
+        # Match on the message, not on the torrent name ("Movie" is not a move).
+        if EVENT.search(m.setdefault("message", "").split(". Torrent:")[0]) or (m.get("type") or 1) >= 4
     ][-events:]
     return {
         "generated": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -102,6 +142,9 @@ def gather(client, events=30):
         },
         "settings": {k: prefs[k] for k in SETTINGS if k in prefs},
         "events": recent,
+        "moves": log_moves(log),
+        "removals": log_removals(log),
+        "jobs": actions.refresh(cfg, torrents) if cfg else [],
     }
 
 
@@ -127,6 +170,14 @@ def show(st, ui):
     chk = st["checking"]
     if chk["count"]:
         ui.warn(f"rechecks: {chk['count']} torrent(s), about {_size(chk['bytes'])} left to read")
+
+    moving = [m for m in st.get("moves", []) if m["status"] in ("pending", "running")]
+    if moving:
+        ui.warn(f"moves: {len(moving)} pending or running (log)")
+    open_jobs = [j for j in st.get("jobs", []) if j["status"] in ("pending", "running")]
+    if open_jobs:
+        counts = actions.summary(open_jobs)
+        ui.warn("seedbox jobs: " + ", ".join(f"{n} {a}" for a, n in counts.items()))
 
     if st["busy"]:
         print()

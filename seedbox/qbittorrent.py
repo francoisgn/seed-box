@@ -1,4 +1,4 @@
-"""qBittorrent Web API client (v2), read-only."""
+"""qBittorrent Web API client (v2): reads, plus the few writes the dashboard offers."""
 
 import urllib.parse
 
@@ -70,3 +70,45 @@ class QbtClient:
 
     def log(self):
         return self.get("/api/v2/log/main", last_known_id=-1) or []
+
+    def transfer(self):
+        return self.get("/api/v2/transfer/info") or {}
+
+    def post(self, path, data):
+        status, text, _ = request(self.base + path, data, self._headers())
+        if status == 403:
+            raise ApiError("qBittorrent: forbidden, authentication required (set the password)")
+        if status == 404:
+            raise NotFound(path)
+        if status not in (200, 204):
+            raise ApiError(f"qBittorrent: HTTP {status} on {path}: {text.strip()[:120]}")
+        return text
+
+    def set_location(self, hashes, location):
+        self.post("/api/v2/torrents/setLocation", {"hashes": "|".join(hashes), "location": location})
+
+    def recheck(self, hashes):
+        self.post("/api/v2/torrents/recheck", {"hashes": "|".join(hashes)})
+
+    def start(self, hashes):
+        # "start" since qBittorrent 5.0, "resume" before.
+        try:
+            self.post("/api/v2/torrents/start", {"hashes": "|".join(hashes)})
+        except NotFound:
+            self.post("/api/v2/torrents/resume", {"hashes": "|".join(hashes)})
+
+    def delete(self, hashes, delete_files=False):
+        self.post(
+            "/api/v2/torrents/delete",
+            {"hashes": "|".join(hashes), "deleteFiles": "true" if delete_files else "false"},
+        )
+
+    def file_priority(self, torrent_hash, ids, priority):
+        self.post(
+            "/api/v2/torrents/filePrio",
+            {"hash": torrent_hash, "id": "|".join(str(i) for i in ids), "priority": str(priority)},
+        )
+
+
+class NotFound(ApiError):
+    pass

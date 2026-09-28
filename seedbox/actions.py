@@ -1,0 +1,222 @@
+"""Dashboard write actions, executed by qBittorrent, and the jobs they create.
+
+Every action goes through qBittorrent (seedbox mounts the media read-only):
+move (setLocation), recheck, start, skip missing extras (file priority 0),
+remove a torrent. Requests are validated here, whatever the page sent:
+
+- move: the destination must be an existing folder under a library root,
+  outside the cross-seed link folders;
+- remove with files: only for cross-seed link torrents whose content no other
+  torrent uses, so a library file is never deleted from the dashboard.
+
+Each torrent touched gets a job in <output>/jobs.json. Its status is derived
+from qBittorrent's live state when read (a move is done when the save path is
+the target, a removal when the torrent is gone), so the list shows what is
+pending, running, done.
+"""
+
+import json
+import os
+import re
+import threading
+import time
+import uuid
+
+from seedbox.api import ApiError
+from seedbox.config import map_path, unmap_path
+
+ACTIONS = ("move", "recheck", "start", "skip_extras", "remove")
+HASH = re.compile(r"^[0-9a-f]{40}$|^[0-9a-f]{64}$")
+MAX_HASHES = 500
+KEEP_DONE_S = 7 * 86400
+CHECKING = ("checkingDL", "checkingUP", "checkingResumeData")
+STOPPED = ("stoppedDL", "stoppedUP", "pausedDL", "pausedUP")
+
+_lock = threading.Lock()
+
+
+class ActionError(Exception):
+    pass
+
+
+def _jobs_path(cfg):
+    return os.path.join(cfg.output_dir, "jobs.json")
+
+
+def load_jobs(cfg):
+    try:
+        with open(_jobs_path(cfg), encoding="utf-8") as handle:
+            return json.load(handle)
+    except (OSError, ValueError):
+        return []
+
+
+def _save_jobs(cfg, jobs):
+    os.makedirs(cfg.output_dir, exist_ok=True)
+    tmp = _jobs_path(cfg) + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        json.dump(jobs, handle, ensure_ascii=False)
+    os.replace(tmp, _jobs_path(cfg))
+
+
+def _in_link_dir(cfg, path):
+    parts = path.split("/")
+    return any(d in parts for d in cfg.link_dirs)
+
+
+def _check_destination(cfg, local):
+    local = os.path.normpath(local)
+    if not any(local == r or local.startswith(r + "/") for r in cfg.roots):
+        raise ActionError("destination must be inside a library root")
+    if _in_link_dir(cfg, local):
+        raise ActionError("destination is a cross-seed link folder")
+    if not os.path.isdir(local):
+        raise ActionError(f"destination folder does not exist: {local}")
+    return unmap_path(cfg, local)
+
+
+def _is_link(cfg, torrent):
+    return torrent.get("category") == "cross-seed-link" or _in_link_dir(
+        cfg, map_path(cfg, torrent.get("content_path") or "")
+    )
+
+
+def run(cfg, client, request):
+    """Validate and execute one action request. Returns the jobs created."""
+    if not cfg.actions:
+        raise ActionError("actions are disabled ([service] actions = true to enable)")
+    action = request.get("action")
+    if action not in ACTIONS:
+        raise ActionError(f"unknown action: {action!r}")
+    hashes = request.get("hashes") or []
+    if not isinstance(hashes, list) or not hashes or len(hashes) > MAX_HASHES:
+        raise ActionError(f"hashes: a list of 1 to {MAX_HASHES} torrent hashes")
+    hashes = [str(h).lower() for h in hashes]
+    if not all(HASH.match(h) for h in hashes):
+        raise ActionError("invalid torrent hash")
+
+    live = {t["hash"]: t for t in client.torrents()}
+    missing = [h for h in hashes if h not in live]
+    if missing:
+        raise ActionError(f"{len(missing)} torrent(s) no longer in qBittorrent, refresh the page")
+
+    target = ""
+    if action == "move":
+        target = _check_destination(cfg, str(request.get("location") or ""))
+        client.set_location(hashes, target)
+    elif action == "recheck":
+        client.recheck(hashes)
+    elif action == "start":
+        client.start(hashes)
+    elif action == "skip_extras":
+        for h in hashes:
+            ids = [
+                i
+                for i, f in enumerate(client.files(h) or [])
+                if (f.get("progress") or 0) < 1
+                and (f.get("priority", 1) or 0) > 0
+                and os.path.splitext(f.get("name", "").removesuffix(".!qB"))[1].lower() not in cfg.media_ext
+            ]
+            if ids:
+                client.file_priority(h, ids, 0)
+    elif action == "remove":
+        delete_files = bool(request.get("delete_files"))
+        if delete_files:
+            for h in hashes:
+                torrent = live[h]
+                if not _is_link(cfg, torrent):
+                    raise ActionError(f"{torrent['name']}: files are deleted only for cross-seed link torrents")
+                shared = [
+                    o["name"]
+                    for oh, o in live.items()
+                    if oh not in hashes and o.get("content_path") == torrent.get("content_path")
+                ]
+                if shared:
+                    raise ActionError(f"{torrent['name']}: its files are used by another torrent ({shared[0]})")
+        client.delete(hashes, delete_files)
+        target = "with files" if delete_files else ""
+
+    now = time.time()
+    created = [
+        {
+            "id": uuid.uuid4().hex[:12],
+            "action": action,
+            "hash": h,
+            "name": live[h].get("name", ""),
+            "from": live[h].get("save_path", ""),
+            "target": target,
+            "submitted": now,
+            "status": "done" if action == "skip_extras" else "pending",
+        }
+        for h in hashes
+    ]
+    with _lock:
+        jobs = load_jobs(cfg) + created
+        _save_jobs(cfg, jobs[-1000:])
+    return created
+
+
+def refresh(cfg, torrents):
+    """Jobs with their status from the live torrent list; prunes old finished jobs."""
+    live = {t["hash"]: t for t in torrents}
+    now = time.time()
+    with _lock:
+        jobs = load_jobs(cfg)
+        kept = []
+        for job in jobs:
+            if job["status"] not in ("done", "failed"):
+                job["status"] = _status(job, live.get(job["hash"]), now)
+                if job["status"] in ("done", "failed"):
+                    job["finished"] = now
+            if job["status"] in ("done", "failed") and now - job.get("finished", job["submitted"]) > KEEP_DONE_S:
+                continue
+            kept.append(job)
+        if kept != jobs:
+            _save_jobs(cfg, kept)
+    return kept
+
+
+def _status(job, torrent, now):
+    age = now - job["submitted"]
+    action = job["action"]
+    if action == "remove":
+        return "done" if torrent is None else ("pending" if age < 3600 else "failed")
+    if torrent is None:
+        return "failed"
+    state = torrent.get("state", "")
+    if action == "move":
+        if torrent.get("save_path", "").rstrip("/") == job["target"].rstrip("/"):
+            return "done"
+        return "running" if state == "moving" else "pending"
+    if action == "recheck":
+        if state in CHECKING:
+            return "running"
+        return "done" if age > 20 else "pending"
+    if action == "start":
+        return "pending" if state in STOPPED and age < 600 else ("failed" if state in STOPPED else "done")
+    return "done"
+
+
+def summary(jobs):
+    counts = {}
+    for job in jobs:
+        if job["status"] in ("pending", "running"):
+            counts[job["action"]] = counts.get(job["action"], 0) + 1
+    return counts
+
+
+def handle(cfg, client_factory, body):
+    """HTTP helper: (status code, response dict)."""
+    try:
+        request = json.loads(body or b"{}")
+        if not isinstance(request, dict):
+            raise ValueError
+    except ValueError:
+        return 400, {"error": "invalid JSON body"}
+    try:
+        created = run(cfg, client_factory(), request)
+    except ActionError as exc:
+        return 400, {"error": str(exc)}
+    except ApiError as exc:
+        return 502, {"error": str(exc)}
+    return 200, {"jobs": created}

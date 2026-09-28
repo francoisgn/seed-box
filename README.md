@@ -1,7 +1,9 @@
 # seed-box
 
-A small dashboard that answers one question: **is my library actually shared
-on my trackers, and are all my trackers fed?**
+**Seedbox control plane**: a dashboard that answers one question, **is my
+library actually shared on my trackers, and are all my trackers fed?**, then
+helps fix what is not: duplicates, stopped torrents, failed cross-seed
+matches, files to regroup, all applied through qBittorrent in one click.
 
 It bridges three sources that do not talk to each other:
 
@@ -30,16 +32,17 @@ file in the organised library are the same data on disk:
 An entry stays recognised after being renamed or moved. The torrent file list
 comes from the qBittorrent API, so a torrent only claims its own files.
 
-An **entry** is the first folder, walking down from a root, that directly holds
-a media file. Grouping folders are walked through, everything below an entry
-(subtitles, extras) belongs to it, and a season folder is one entry, matching
-season packs. Loose media files in a root are one entry each.
+An **entry** is one work as stored: a film file (with its sidecars and
+CD1/CD2 parts) when films sit side by side in a folder (`incoming`,
+`archives`…), a folder when it holds one film with extras, a season, or a
+numbered collection (`DBZ - 001…`). Grouping folders are walked through.
 
 | Status | Meaning |
 |---|---|
-| 🟢 seeded | at least one complete torrent |
-| 🟠 incomplete | torrents exist but none is at 100 % |
-| 🔴 orphan | no torrent at all |
+| 🟢 seeded everywhere | on every enabled Prowlarr tracker |
+| 🔵 partially seeded | on some trackers |
+| 🟠 downloading | torrents exist but none is at 100 % |
+| ⚪ on disk, not seeded | no torrent at all |
 
 For trackers, announce hosts (qBittorrent) and indexer URLs (Prowlarr) are
 reduced to their domain and merged. The dashboard flags:
@@ -48,6 +51,36 @@ reduced to their domain and merged. The dashboard flags:
 - 🟠 a tracker seeding content but missing from Prowlarr (cross-seed will not search it),
 - 🔴 a tracker Prowlarr disabled after errors,
 - per entry, **"missing on tracker X"**: content you could still share there.
+
+### Diagnosis and fixes
+
+| Issue | Cause | Fix from the dashboard |
+|---|---|---|
+| Same file, same tracker | a tracker holds several uploads of one release; cross-seed injects each | remove the extras, the most seeded complete one is kept |
+| Several versions | same title and year, different files (1080p and 2160p, archives and incoming) | pick one; the other has a move or `rm` hint |
+| Episodes twice | same episode number twice in a season folder | by hand |
+| Failed match | cross-seed partial match stopped at 0 %: the data did not verify | recheck, or remove |
+| Stopped | a torrent neither seeds nor downloads | start, recheck |
+| Missing extras | a cross-seed match waits for a `.nfo`/`.jpg` nobody seeds (files stay `.!qB`) | skip them (file priority 0) |
+| Lone film | the only film of a grouping folder: fine while moving, not as a lasting state | move it |
+| Outside the library | torrent matched to no entry: library copy deleted (only cross-seed links left), other share, missing files | shown with the reason |
+
+Moves go through qBittorrent (`setLocation`), one at a time on its side, so
+torrents follow their files and cross-seed hardlinks stay valid. A removal
+never deletes a library file: files can only be deleted for cross-seed link
+torrents whose content no other torrent uses.
+
+### Live panels
+
+Served by `seedbox run`, the dashboard also shows:
+
+- **qBittorrent activity**: queued jobs (moves, removals) with their progress,
+  rechecks pending and bytes left to read, disk queue, busy torrents, log;
+- **system**: CPU and IO wait, busiest disk, memory, transfer, volume usage,
+  sampled every 5 minutes from `/proc` (host-wide in a container) and one light
+  qBittorrent call, kept 14 days in `metrics.jsonl`;
+- **seeded entries over time**, rebuilt from the torrents' add dates, so the
+  trend is there from the first run.
 
 ## Deploy (container, remote host)
 
@@ -90,7 +123,10 @@ parent, read-only, and map the paths qBittorrent reports with
 `[qbittorrent.path_map]`.
 
 The dashboard has no authentication: keep it on the LAN or behind a reverse
-proxy with auth.
+proxy with auth. Actions (move, recheck, start, remove) are off unless
+`[service] actions = true`; they only accept JSON POSTs carrying an
+`X-Seedbox` header from the same origin, which a page from another site cannot
+send.
 
 ## Without a container
 
@@ -126,6 +162,10 @@ the `_FILE` suffix (Docker secrets), e.g. `SEEDBOX_QBT_PASSWORD_FILE`.
 | `SEEDBOX_SCHEDULE` | `service.schedule` (`"04:00"`, `"sun 04:00"`, `"mon,thu 03:30"`) | empty |
 | `SEEDBOX_INTERVAL_HOURS` | `service.interval_hours` (used when no schedule) | `24` |
 | `SEEDBOX_PORT` | `service.port` | `8080` |
+| `SEEDBOX_ACTIONS` | `service.actions`: dashboard actions through qBittorrent | `false` |
+| `SEEDBOX_METRICS_INTERVAL` | `service.metrics_interval` (seconds, `0` = off) | `300` |
+| | `service.metrics_days`: metrics kept | `14` |
+| | `library.link_dirs`: cross-seed link folder names | `[".cross-seed"]` |
 
 ## Output
 
@@ -136,6 +176,8 @@ the `_FILE` suffix (Docker secrets), e.g. `SEEDBOX_QBT_PASSWORD_FILE`.
 | `history.csv` | one line per run: coverage, sizes, upload |
 | `history-trackers.csv` | one line per run and tracker |
 | `snapshot.json` | everything above, for other tools |
+| `jobs.json` | actions sent from the dashboard and their status |
+| `metrics.jsonl` | host and qBittorrent samples |
 
 The coverage curve appears from the second run.
 

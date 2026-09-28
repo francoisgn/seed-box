@@ -287,15 +287,15 @@ class Pipeline(unittest.TestCase):
                 "p": ["Show.X/S01/e1.mkv", "Show.X/S02/e1.mkv"],
             },
         )
-        unmatched, count = collect.correlate(self.cfg, qbt, entries, index)
+        records, unmatched = collect.correlate(self.cfg, qbt, entries, index)
         by = {e.name: e for e in entries}
-        self.assertEqual(count, 4)
+        self.assertEqual(len(records), 4)
         self.assertEqual(by["collection/Movie.A"].status, "seeded")
         self.assertEqual(by["collection/Movie.A"].trackers, ["alpha.example", "beta.example"])
         self.assertEqual(by["Movie.B"].status, "incomplete")  # matched through the path fallback
         self.assertEqual(by["loose.mp4"].status, "orphan")
         self.assertEqual(by["Show.X/S01"].uploaded + by["Show.X/S02"].uploaded, 600)
-        self.assertEqual([u["name"] for u in unmatched], ["Elsewhere"])
+        self.assertEqual([(u["name"], u["reason"]) for u in unmatched], [("Elsewhere", "missing")])
 
         indexers = {
             "alpha.example": {"name": "Alpha", "enabled": True, "failing": False, "grabs": 3},
@@ -328,11 +328,13 @@ class Pipeline(unittest.TestCase):
             "entries": [
                 {
                     "category": "m",
+                    "coverage": "none",
+                    "issues": [],
                     "name": "</script><b>x",
                     "path": "/secret/path",
                     "status": "orphan",
                     "trackers": [],
-                    "torrents": 0,
+                    "torrents": [],
                     "size": 1,
                     "files": 1,
                     "uploaded": 0,

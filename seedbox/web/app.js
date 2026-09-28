@@ -1,0 +1,940 @@
+'use strict';
+// Seedbox control plane. Data comes embedded (snapshot of the last collection);
+// live parts (qBittorrent activity, jobs, system metrics) come from the API of
+// `seedbox run`. Every text from the data is inserted with textContent.
+
+var D = JSON.parse(document.getElementById('data').textContent);
+var H = JSON.parse(document.getElementById('history').textContent);
+var LIVE = location.protocol !== 'file:';
+var GIB = Math.pow(1024, 3), TIB = Math.pow(1024, 4);
+// Categorical dark steps, fixed order; a tracker keeps its slot whatever the filters.
+var SLOTS = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#9085e9', '#e66767', '#008300'];
+var C = {ok: '#81c995', warn: '#fde293', ko: '#f28b82', primary: '#8ab4f8', neutral: 'rgba(255,255,255,0.38)'};
+
+// ---------- helpers
+function el(tag, attrs, kids) {
+  var n = document.createElement(tag);
+  for (var k in (attrs || {})) {
+    var v = attrs[k];
+    if (v === null || v === undefined || v === false) continue;
+    if (k === 'text') n.textContent = v;
+    else if (k === 'style') n.style.cssText = v;
+    else if (k.slice(0, 2) === 'on') n.addEventListener(k.slice(2), v);
+    else n.setAttribute(k, v === true ? '' : v);
+  }
+  (kids || []).forEach(function (c) {
+    if (c === null || c === undefined || c === false) return;
+    n.appendChild(typeof c === 'string' ? document.createTextNode(c) : c);
+  });
+  return n;
+}
+var SVGNS = 'http://www.w3.org/2000/svg';
+function sv(tag, attrs, kids) {
+  var n = document.createElementNS(SVGNS, tag);
+  for (var k in (attrs || {})) {
+    if (attrs[k] === null || attrs[k] === undefined) continue;
+    if (k === 'text') n.textContent = attrs[k];
+    else n.setAttribute(k, attrs[k]);
+  }
+  (kids || []).forEach(function (c) { if (c) n.appendChild(c); });
+  return n;
+}
+function $(id) { return document.getElementById(id); }
+function clear(n) { while (n.firstChild) n.removeChild(n.firstChild); return n; }
+function fix(v, d) { return Number(v || 0).toFixed(d); }
+function bytes(n) {
+  n = Number(n || 0);
+  if (n >= TIB) return fix(n / TIB, 2) + ' TiB';
+  if (n >= GIB) return fix(n / GIB, 1) + ' GiB';
+  if (n >= 1048576) return fix(n / 1048576, 1) + ' MiB';
+  if (n >= 1024) return fix(n / 1024, 0) + ' KiB';
+  return fix(n, 0) + ' B';
+}
+function rate(n) { return bytes(n) + '/s'; }
+function pct(v, d) { return fix(v, d === undefined ? 0 : d) + ' %'; }
+function when(iso) { var d = new Date(iso); return isNaN(d) ? '' : d.toLocaleString(); }
+function ago(ts) {
+  var s = (Date.now() - ts) / 1000;
+  if (s < 90) return 'just now';
+  if (s < 5400) return Math.round(s / 60) + ' min ago';
+  if (s < 129600) return Math.round(s / 3600) + ' h ago';
+  return Math.round(s / 86400) + ' days ago';
+}
+function short(s, n) { return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+// Last part of an entry name; a season folder keeps its show ("Show / season-08").
+function label(name) {
+  var parts = name.split('/'), last = parts[parts.length - 1];
+  return parts.length > 1 && /^(season|saison|s)[ ._-]?\d{1,2}$/i.test(last) ? parts[parts.length - 2] + ' / ' + last : last;
+}
+
+// Icons: outlined strokes, filled variant through CSS on the active rail item.
+var ICONS = {
+  overview: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
+  activity: 'M7 4v16M7 4L3 8M7 4l4 4M17 20V4M17 20l-4-4M17 20l4-4',
+  library: 'M3 7h14v13H3zM7 3h14v13M8 11v5l4-2.5z',
+  duplicates: 'M8 8h12v12H8zM4 16V4h12',
+  system: 'M3 12h4l2-5 4 10 2-5h6',
+  logs: 'M5 5h14M5 9.5h14M5 14h9M5 18.5h9',
+  outside: 'M14 4h6v6M20 4l-9 9M18 14v6H4V6h6',
+  search: 'M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM15.5 15.5L20 20',
+  refresh: 'M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5',
+  collect: 'M12 4v10M8 10l4 4 4-4M5 18h14',
+  check: 'M5 12.5l4.5 4.5L19 7.5',
+  chevron: 'M6 9l6 6 6-6',
+  move: 'M3 6h6l2 2h10v11H3zM10 13.5h7M14 10.5l3 3-3 3',
+  recheck: 'M12 3l7 3v6c0 4.2-3 7.4-7 9-4-1.6-7-4.8-7-9V6zM8.5 12l2.5 2.5 4.5-5',
+  start: 'M8 5v14l11-7z',
+  remove: 'M5 7h14M10 7V4h4v3M7 7l1 13h8l1-13',
+  copy: 'M9 9h11v11H9zM5 15V4h11',
+  extras: 'M4 6h16M4 12h10M4 18h7M17 15l4 4M21 15l-4 4',
+  warn: 'M12 4l9 16H3zM12 10v4M12 17.5v.01',
+  info: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 11v6M12 7.5v.01',
+  disk: 'M4 6h16v5H4zM4 13h16v5H4zM7.5 8.5v.01M7.5 15.5v.01',
+  up: 'M12 19V5M6 11l6-6 6 6',
+  down: 'M12 5v14M6 13l6 6 6-6'
+};
+function icon(name, cls) {
+  return sv('svg', {'class': 'icon ' + (cls || ''), viewBox: '0 0 24 24', 'aria-hidden': 'true'}, [sv('path', {d: ICONS[name] || ''})]);
+}
+
+// ---------- tooltip (inverse surface) and toast
+var TIP = $('tooltip');
+function tip(evt, title, rows) {
+  clear(TIP);
+  if (title) TIP.appendChild(el('div', {'class': 'tt-title', text: title}));
+  (rows || []).forEach(function (r) {
+    TIP.appendChild(el('div', {'class': 'tt-row'}, [
+      r.color ? el('i', {'class': 'tt-key', style: 'background:' + r.color}) : null,
+      el('b', {text: r.value}), el('span', {text: r.label || ''})
+    ]));
+  });
+  TIP.style.display = 'block';
+  var x = evt.clientX + 16, y = evt.clientY + 16, w = TIP.offsetWidth, h = TIP.offsetHeight;
+  if (x + w > window.innerWidth - 8) x = evt.clientX - w - 16;
+  if (y + h > window.innerHeight - 8) y = evt.clientY - h - 16;
+  TIP.style.left = x + 'px'; TIP.style.top = y + 'px';
+}
+function untip() { TIP.style.display = 'none'; }
+var toastTimer;
+function toast(msg) {
+  var t = $('toast'); t.textContent = msg; t.style.display = 'block';
+  clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.style.display = 'none'; }, 5000);
+}
+
+// ---------- shared lookups
+var TRACKERS = D.trackers.slice().sort(function (a, b) { return a.key < b.key ? -1 : 1; });
+var TCOLOR = {}, TNAME = {};
+TRACKERS.forEach(function (t, i) { TCOLOR[t.key] = SLOTS[i % SLOTS.length]; TNAME[t.key] = t.name; });
+var BYHASH = {};
+D.torrents.forEach(function (t) { BYHASH[t.hash] = t; });
+var S = D.summary;
+var FOLDERS = D.folders || [];
+
+function trackerChip(key) {
+  return el('span', {'class': 'tk'}, [el('i', {style: 'background:' + (TCOLOR[key] || C.neutral)}), TNAME[key] || key]);
+}
+var COVER = {
+  everywhere: ['ok', 'Everywhere'], partial: ['info', 'Partial'], none: ['', 'Not seeded']
+};
+function statusBadge(e) {
+  if (e.status === 'incomplete') return el('span', {'class': 'badge warn', text: 'Incomplete'});
+  var c = COVER[e.coverage] || COVER.none;
+  return el('span', {'class': 'badge ' + c[0], text: c[1]});
+}
+function isProblem(i) { return i.code !== 'versions' && i.code !== 'episodes'; }
+function isDup(i) { return i.code === 'same_tracker' || i.code === 'versions' || i.code === 'episodes'; }
+function stateGroup(s) {
+  if (/^(stalledUP|uploading|forcedUP|queuedUP)$/.test(s)) return 'seeding';
+  if (/^checking/.test(s) || s === 'moving') return 'busy';
+  if (/^(stopped|paused)/.test(s)) return 'stopped';
+  if (s === 'error' || s === 'missingFiles') return 'error';
+  return 'downloading';
+}
+var SG = {
+  seeding: ['ok', 'Seeding', C.ok], downloading: ['info', 'Downloading', C.primary], busy: ['warn', 'Checking or moving', C.warn],
+  stopped: ['', 'Stopped', C.neutral], error: ['ko', 'Error', C.ko]
+};
+function stateBadge(state) {
+  var g = SG[stateGroup(state)];
+  return el('span', {'class': 'badge ' + g[0], title: g[1], text: state});
+}
+
+// ---------- charts
+function donut(box, segs, center, sub) {
+  clear(box);
+  var total = segs.reduce(function (a, s) { return a + s.value; }, 0);
+  var size = 176, r = 68, w = 20, c = 2 * Math.PI * r, gap = total ? 2 : 0;
+  var svg = sv('svg', {viewBox: '0 0 ' + size + ' ' + size, width: size, height: size, role: 'img',
+    'aria-label': segs.map(function (s) { return s.label + ' ' + s.value; }).join(', ')});
+  svg.appendChild(sv('circle', {cx: 88, cy: 88, r: r, fill: 'none', stroke: 'var(--s3)', 'stroke-width': w}));
+  var off = 0;
+  segs.forEach(function (s) {
+    if (!s.value) return;
+    var len = Math.max(s.value / total * c - gap, 1);
+    var arc = sv('circle', {'class': 'mark', cx: 88, cy: 88, r: r, fill: 'none', stroke: s.color, 'stroke-width': w,
+      'stroke-dasharray': len + ' ' + (c - len), 'stroke-dashoffset': -off, transform: 'rotate(-90 88 88)', tabindex: 0});
+    arc.addEventListener('pointermove', function (e) { tip(e, s.label, [{value: s.value + ' (' + pct(s.value / total * 100) + ')'}]); });
+    arc.addEventListener('pointerleave', untip);
+    svg.appendChild(arc);
+    off += s.value / total * c;
+  });
+  svg.appendChild(sv('text', {x: 88, y: 86, 'text-anchor': 'middle', fill: 'var(--t1)', 'font-size': 28, text: center}));
+  svg.appendChild(sv('text', {x: 88, y: 108, 'text-anchor': 'middle', fill: 'var(--t2)', 'font-size': 12, text: sub}));
+  var wrap = el('div', {style: 'display:flex;align-items:center;gap:24px;flex-wrap:wrap'}, [svg]);
+  var legend = el('div', {'class': 'legend', style: 'flex-direction:column;margin:0'});
+  segs.forEach(function (s) {
+    legend.appendChild(el('span', {}, [el('i', {'class': 'key', style: 'background:' + s.color}),
+      el('b', {style: 'color:var(--t1);font-weight:500;min-width:40px', text: String(s.value)}), s.label]));
+  });
+  wrap.appendChild(legend);
+  box.appendChild(wrap);
+}
+
+function gauge(box, value, label, color) {
+  clear(box);
+  var v = Math.max(0, Math.min(100, value || 0)), r = 40, c = Math.PI * r;
+  var svg = sv('svg', {viewBox: '0 0 100 58', width: 112, height: 64, role: 'img', 'aria-label': label + ' ' + pct(v)});
+  svg.appendChild(sv('path', {d: 'M10 50a40 40 0 0 1 80 0', fill: 'none', stroke: 'var(--s3)', 'stroke-width': 10, 'stroke-linecap': 'round'}));
+  svg.appendChild(sv('path', {d: 'M10 50a40 40 0 0 1 80 0', fill: 'none', stroke: color, 'stroke-width': 10, 'stroke-linecap': 'round',
+    'stroke-dasharray': (v / 100 * c) + ' ' + c}));
+  box.appendChild(svg);
+}
+
+function hbars(box, rows, total) {
+  clear(box);
+  if (!rows.length) { box.appendChild(el('p', {'class': 'nodata', text: 'No tracker yet.'})); return; }
+  var grid = el('div', {'class': 'hbar'});
+  rows.forEach(function (r) {
+    var share = total ? r.value / total * 100 : 0;
+    var bar = el('div', {'class': 'track', tabindex: 0}, [el('i', {style: 'width:' + share + '%;background:' + r.color})]);
+    bar.addEventListener('pointermove', function (e) { tip(e, r.label, r.tip); });
+    bar.addEventListener('pointerleave', untip);
+    grid.appendChild(el('div', {'class': 'lab', title: r.label}, [el('span', {'class': 'dot', style: 'background:' + r.color + ';margin-right:8px'}), r.label]));
+    grid.appendChild(bar);
+    grid.appendChild(el('div', {'class': 'val', text: pct(share)}));
+  });
+  box.appendChild(grid);
+}
+
+function niceMax(v) {
+  if (v <= 0) return 1;
+  var p = Math.pow(10, Math.floor(Math.log10(v))), n = v / p;
+  return (n <= 1 ? 1 : n <= 2 ? 2 : n <= 5 ? 5 : 10) * p;
+}
+
+// Line / area chart on one axis, crosshair tooltip listing every series.
+function lineChart(box, o) {
+  clear(box);
+  if (!o.xs.length) { box.appendChild(el('p', {'class': 'nodata', text: o.empty || 'No data yet.'})); return; }
+  var W = Math.max(box.clientWidth, 280), Hh = o.height || 200, m = {l: 48, r: 16, t: 8, b: 24};
+  var iw = W - m.l - m.r, ih = Hh - m.t - m.b;
+  var x0 = o.xs[0], x1 = o.xs[o.xs.length - 1], span = Math.max(x1 - x0, 1);
+  var maxV = o.yMax || niceMax(Math.max.apply(null, o.series.map(function (s) {
+    return Math.max.apply(null, s.values.map(function (v) { return v || 0; }));
+  })) * 1.05);
+  function X(v) { return m.l + (v - x0) / span * iw; }
+  function Y(v) { return m.t + ih - (v || 0) / maxV * ih; }
+  var svg = sv('svg', {width: W, height: Hh, role: 'img', 'aria-label': o.label || ''});
+  var grid = sv('g', {'class': 'grid'}), axis = sv('g', {'class': 'axis'});
+  for (var i = 0; i <= 4; i++) {
+    var yv = maxV / 4 * i;
+    grid.appendChild(sv('line', {x1: m.l, x2: W - m.r, y1: Y(yv), y2: Y(yv)}));
+    axis.appendChild(sv('text', {x: m.l - 8, y: Y(yv) + 4, 'text-anchor': 'end', text: o.yFmt(yv)}));
+  }
+  var ticks = Math.min(5, o.xs.length);
+  for (var j = 0; j < ticks; j++) {
+    var xv = x0 + span * j / Math.max(ticks - 1, 1);
+    axis.appendChild(sv('text', {x: X(xv), y: Hh - 4, 'text-anchor': j === 0 ? 'start' : j === ticks - 1 ? 'end' : 'middle', text: o.xFmt(xv)}));
+  }
+  svg.appendChild(grid); svg.appendChild(axis);
+  o.series.forEach(function (s) {
+    var pts = [];
+    o.xs.forEach(function (x, k) { if (s.values[k] !== null && s.values[k] !== undefined) pts.push(fix(X(x), 1) + ',' + fix(Y(s.values[k]), 1)); });
+    if (!pts.length) return;
+    if (s.area) {
+      svg.appendChild(sv('polygon', {points: fix(X(o.xs[0]), 1) + ',' + Y(0) + ' ' + pts.join(' ') + ' ' + fix(X(x1), 1) + ',' + Y(0),
+        fill: s.color, opacity: 0.16}));
+    }
+    svg.appendChild(sv('polyline', {points: pts.join(' '), fill: 'none', stroke: s.color, 'stroke-width': 2,
+      'stroke-linejoin': 'round', 'stroke-linecap': 'round', 'stroke-dasharray': s.dash || null}));
+  });
+  var xh = sv('line', {'class': 'xhair', y1: m.t, y2: m.t + ih, visibility: 'hidden'});
+  var dots = sv('g');
+  svg.appendChild(xh); svg.appendChild(dots);
+  var hit = sv('rect', {'class': 'hit', x: m.l, y: m.t, width: iw, height: ih});
+  hit.addEventListener('pointermove', function (e) {
+    var rect = svg.getBoundingClientRect(), px = e.clientX - rect.left, best = 0, bd = Infinity;
+    o.xs.forEach(function (x, k) { var d = Math.abs(X(x) - px); if (d < bd) { bd = d; best = k; } });
+    var cx = X(o.xs[best]);
+    xh.setAttribute('x1', cx); xh.setAttribute('x2', cx); xh.setAttribute('visibility', 'visible');
+    clear(dots);
+    var rows = [];
+    o.series.forEach(function (s) {
+      var v = s.values[best];
+      if (v === null || v === undefined) return;
+      dots.appendChild(sv('circle', {cx: cx, cy: Y(v), r: 4, fill: s.color, stroke: 'var(--s1)', 'stroke-width': 2}));
+      rows.push({color: s.color, value: o.yFmt(v, true), label: s.name});
+    });
+    tip(e, o.tipFmt ? o.tipFmt(o.xs[best]) : o.xFmt(o.xs[best]), rows);
+  });
+  hit.addEventListener('pointerleave', function () { untip(); xh.setAttribute('visibility', 'hidden'); clear(dots); });
+  svg.appendChild(hit);
+  box.appendChild(svg);
+  if (o.series.length > 1) {
+    var legend = el('div', {'class': 'legend'});
+    o.series.forEach(function (s) {
+      legend.appendChild(el('span', {}, [el('i', {'class': 'key line', style: 'background:' + s.color}), s.name]));
+    });
+    box.appendChild(legend);
+  }
+}
+
+// Stacked vertical bars, per-bar tooltip.
+function stackedBars(box, o) {
+  clear(box);
+  var W = Math.max(box.clientWidth, 280), Hh = o.height || 200, m = {l: 40, r: 8, t: 8, b: 24};
+  var iw = W - m.l - m.r, ih = Hh - m.t - m.b, n = o.labels.length;
+  var totals = o.labels.map(function (_, i) { return o.series.reduce(function (a, s) { return a + (s.values[i] || 0); }, 0); });
+  var maxV = niceMax(Math.max.apply(null, totals.concat([1])));
+  var bw = Math.max(iw / n - 2, 1);
+  var svg = sv('svg', {width: W, height: Hh, role: 'img', 'aria-label': o.label || ''});
+  var grid = sv('g', {'class': 'grid'}), axis = sv('g', {'class': 'axis'});
+  for (var g = 0; g <= 4; g++) {
+    var y = m.t + ih - ih * g / 4;
+    grid.appendChild(sv('line', {x1: m.l, x2: W - m.r, y1: y, y2: y}));
+    axis.appendChild(sv('text', {x: m.l - 8, y: y + 4, 'text-anchor': 'end', text: String(Math.round(maxV * g / 4))}));
+  }
+  [0, Math.floor(n / 2), n - 1].forEach(function (i, k) {
+    axis.appendChild(sv('text', {x: m.l + i * (iw / n) + bw / 2, y: Hh - 4, 'text-anchor': k === 0 ? 'start' : k === 2 ? 'end' : 'middle', text: o.xFmt(o.labels[i])}));
+  });
+  svg.appendChild(grid); svg.appendChild(axis);
+  o.labels.forEach(function (lab, i) {
+    var x = m.l + i * (iw / n), base = m.t + ih;
+    var group = sv('g', {'class': 'mark'});
+    o.series.forEach(function (s, k) {
+      var v = s.values[i] || 0;
+      if (!v) return;
+      var h = v / maxV * ih;
+      var top = k === o.series.length - 1 || !o.series.slice(k + 1).some(function (z) { return z.values[i]; });
+      group.appendChild(sv('rect', {x: x, y: base - h, width: bw, height: Math.max(h - 1, 1), fill: s.color, rx: top ? 2 : 0}));
+      base -= h;
+    });
+    var hit = sv('rect', {'class': 'hit', x: x - 1, y: m.t, width: bw + 2, height: ih});
+    hit.addEventListener('pointermove', function (e) {
+      group.classList.add('hover');
+      tip(e, o.tipFmt(lab), o.series.map(function (s) { return {color: s.color, value: String(s.values[i] || 0), label: s.name}; }));
+    });
+    hit.addEventListener('pointerleave', function () { group.classList.remove('hover'); untip(); });
+    svg.appendChild(group); svg.appendChild(hit);
+  });
+  box.appendChild(svg);
+  var legend = el('div', {'class': 'legend'});
+  o.series.forEach(function (s) { legend.appendChild(el('span', {}, [el('i', {'class': 'key', style: 'background:' + s.color}), s.name])); });
+  box.appendChild(legend);
+}
+
+// ---------- API
+function api(path, body) {
+  var opts = {cache: 'no-store'};
+  if (body) opts = {method: 'POST', cache: 'no-store', headers: {'Content-Type': 'application/json', 'X-Seedbox': '1'}, body: JSON.stringify(body)};
+  return fetch(path, opts).then(function (r) {
+    return r.json().catch(function () { return {}; }).then(function (j) {
+      if (!r.ok) throw new Error(j.error || ('HTTP ' + r.status));
+      return j;
+    });
+  });
+}
+
+// Confirmation dialog; resolves with the checkbox value (or false), rejects on cancel.
+function confirmDialog(title, body, okLabel, checkbox) {
+  return new Promise(function (resolve, reject) {
+    var d = $('dialog'); clear(d);
+    var box = checkbox ? el('input', {type: 'checkbox'}) : null;
+    var cancel = el('button', {'class': 'btn', text: 'Cancel', type: 'button'});
+    var ok = el('button', {'class': 'btn filled', text: okLabel, type: 'button'});
+    d.appendChild(el('h3', {text: title}));
+    d.appendChild(el('div', {'class': 'body'}, [el('div', {text: body}), checkbox ? el('label', {}, [box, checkbox]) : null]));
+    d.appendChild(el('div', {'class': 'actions'}, [cancel, ok]));
+    cancel.onclick = function () { d.close(); reject(); };
+    ok.onclick = function () { d.close(); resolve(box ? box.checked : false); };
+    d.showModal();
+  });
+}
+
+var ACTION_TEXT = {
+  move: 'Move', recheck: 'Recheck', start: 'Start', skip_extras: 'Skip missing extras', remove: 'Remove'
+};
+function act(action, hashes, extra, label) {
+  if (!D.actions) { toast('Actions are disabled: set [service] actions = true.'); return Promise.resolve(); }
+  if (!LIVE) { toast('Open the dashboard from seedbox run to use actions.'); return Promise.resolve(); }
+  var body = Object.assign({action: action, hashes: hashes}, extra || {});
+  return api('api/action', body).then(function (r) {
+    toast((label || ACTION_TEXT[action]) + ': ' + r.jobs.length + ' job(s) sent to qBittorrent.');
+    refreshLive();
+  }).catch(function (e) { toast('Failed: ' + e.message); });
+}
+function confirmAct(action, hashes, title, body, extra) {
+  var linkOnly = hashes.every(function (h) { return BYHASH[h] && BYHASH[h].link; });
+  var box = action === 'remove' && linkOnly ? 'Also delete their cross-seed link files (the library copy is kept)' : null;
+  return confirmDialog(title, body, ACTION_TEXT[action], box).then(function (checked) {
+    return act(action, hashes, Object.assign({}, extra || {}, action === 'remove' ? {delete_files: checked} : {}));
+  }, function () {});
+}
+function fixButton(fix, issue, entry) {
+  var h = issue.torrent ? [issue.torrent] : [];
+  var t = issue.torrent && BYHASH[issue.torrent];
+  if (fix === 'remove_extra') {
+    return el('button', {'class': 'btn sm', type: 'button', onclick: function (e) {
+      e.stopPropagation();
+      var keep = BYHASH[issue.keep];
+      confirmAct('remove', issue.remove, 'Remove ' + issue.remove.length + ' redundant torrent(s)?',
+        'Keeps "' + (keep ? keep.name : issue.keep) + '" (' + (keep ? keep.seeds + ' seeds, ' + bytes(keep.uploaded) + ' uploaded' : '') +
+        '). The library file is never touched.');
+    }}, [icon('remove', 'sm'), 'Remove ' + issue.remove.length + ' extra']);
+  }
+  var names = {start: ['start', 'Start'], recheck: ['recheck', 'Recheck'], remove: ['remove', 'Remove torrent'], skip_extras: ['extras', 'Skip missing extras']};
+  if (fix === 'move') return el('span', {'class': 'faint small', text: 'Use Move below'});
+  var n = names[fix];
+  if (!n) return null;
+  return el('button', {'class': 'btn sm' + (fix === 'remove' ? ' danger' : ''), type: 'button', onclick: function (e) {
+    e.stopPropagation();
+    if (fix === 'remove') confirmAct('remove', h, 'Remove this torrent?', (t ? t.name : '') + ' on ' + (t ? TNAME[t.tracker] || t.tracker : '') + '. The library file is never touched.');
+    else act(fix, h);
+  }}, [icon(n[0], 'sm'), n[1]]);
+}
+
+// ---------- hero and top bar
+function renderHero() {
+  $('hero-sub').textContent = S.entries + ' entries · ' + bytes(S.size) + ' on disk · ' + S.torrents + ' torrents (' +
+    S.cross_seed_torrents + ' cross-seed) · collected ' + when(D.generated) + ' in ' + fix(D.duration_s, 0) + ' s';
+  var meta = $('hero-meta'); clear(meta);
+  meta.appendChild(el('span', {'class': 'badge ' + (S.prowlarr ? 'ok' : 'warn'), text: S.prowlarr ? 'Prowlarr connected' : 'Prowlarr not configured'}));
+  meta.appendChild(el('span', {'class': 'badge ' + (D.actions ? 'info' : ''), text: D.actions ? 'Actions enabled' : 'Read-only'}));
+  meta.appendChild(el('span', {'class': 'badge', text: 'Everywhere = ' + S.target_trackers.map(function (k) { return TNAME[k] || k; }).join(', ')}));
+  if (!LIVE) meta.appendChild(el('span', {'class': 'badge warn', text: 'Offline copy: live data unavailable'}));
+}
+
+// ---------- overview
+function kpi(box, label, iconName, value, unit, foot, onclick) {
+  clear(box);
+  if (onclick) { box.classList.add('link'); box.onclick = onclick; box.tabIndex = 0; }
+  box.appendChild(el('div', {'class': 'label'}, [icon(iconName, 'sm'), label]));
+  box.appendChild(el('div', {'class': 'value'}, [String(value), unit ? el('small', {text: unit}) : null]));
+  if (foot) box.appendChild(el('div', {'class': 'foot', text: foot}));
+}
+function renderOverview() {
+  var cov = $('k-coverage'); clear(cov);
+  cov.appendChild(el('div', {'class': 'label'}, [icon('library', 'sm'), 'Library shared']));
+  var g = el('div'); gauge(g, S.coverage_pct, 'Coverage', C.ok);
+  cov.appendChild(el('div', {'class': 'gauge-wrap'}, [g, el('div', {'class': 'value', text: pct(S.coverage_pct)})]));
+  cov.appendChild(el('div', {'class': 'foot', text: S.everywhere + ' everywhere · ' + S.partial + ' partial · ' + S.none + ' not seeded'}));
+
+  kpi($('k-library'), 'Library', 'disk', S.entries, 'entries', bytes(S.size) + ' · ' + FOLDERS.length + ' folders');
+  kpi($('k-uploaded'), 'Uploaded', 'up', fix(S.uploaded / TIB, 2), 'TiB', S.torrents + ' torrents, ' + S.cross_seed_torrents + ' from cross-seed');
+  kpi($('k-problems'), 'Problems', 'warn', S.problems, 'entries', 'Stopped, failed matches, errors, missing extras',
+    function () { setFilter('problems'); location.hash = '#library'; });
+  kpi($('k-dups'), 'Duplicates', 'duplicates', S.duplicates, 'entries', D.duplicates.length + ' groups: same tracker, versions, episodes',
+    function () { location.hash = '#duplicates'; });
+
+  var parts = {everywhere: 0, partial: 0, incomplete: 0, none: 0};
+  D.entries.forEach(function (e) { parts[e.status === 'incomplete' ? 'incomplete' : e.coverage]++; });
+  donut($('c-status'), [
+    {label: 'Seeded on every tracker', value: parts.everywhere, color: C.ok},
+    {label: 'Seeded on some trackers', value: parts.partial, color: C.primary},
+    {label: 'Downloading', value: parts.incomplete, color: C.warn},
+    {label: 'On disk, not seeded', value: parts.none, color: C.neutral}
+  ], pct(S.coverage_pct), 'shared');
+
+  hbars($('c-trackers'), D.trackers.map(function (t) {
+    var st = !t.in_prowlarr ? 'not in Prowlarr' : !t.enabled ? 'disabled' : t.failing ? 'failing' : 'ok';
+    return {label: t.name, value: t.entries, color: TCOLOR[t.key], tip: [
+      {value: String(t.entries), label: 'entries'}, {value: bytes(t.size), label: 'shared'},
+      {value: bytes(t.uploaded), label: 'uploaded'}, {value: st, label: ''}]};
+  }), S.entries);
+
+  var states = {};
+  Object.keys(D.states).forEach(function (s) { var g2 = stateGroup(s); states[g2] = (states[g2] || 0) + D.states[s]; });
+  donut($('c-states'), Object.keys(SG).filter(function (k) { return states[k]; }).map(function (k) {
+    return {label: SG[k][1], value: states[k], color: SG[k][2]};
+  }), String(S.torrents), 'torrents');
+
+  var tl = D.timeline || [];
+  var tlBox = $('c-timeline');
+  var series = [{name: 'All trackers', color: C.primary, area: true, values: tl.map(function (p) { return p.seeded; })}];
+  TRACKERS.forEach(function (t) {
+    if (!tl.some(function (p) { return p.trackers[t.name]; })) return;
+    series.push({name: t.name, color: TCOLOR[t.key], values: tl.map(function (p) { return p.trackers[t.name] || 0; })});
+  });
+  lineChart(tlBox, {
+    xs: tl.map(function (p) { return new Date(p.date).getTime(); }), series: series, label: 'Seeded entries over time',
+    yFmt: function (v) { return String(Math.round(v)); },
+    xFmt: function (x) { return new Date(x).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}); },
+    tipFmt: function (x) { return new Date(x).toLocaleDateString(); }
+  });
+  var added = D.added || [];
+  stackedBars($('c-added'), {
+    labels: added.map(function (a) { return a.date; }), label: 'Torrents added per day',
+    series: [{name: 'Cross-seed', color: SLOTS[0], values: added.map(function (a) { return a.cross_seed; })},
+             {name: 'Other', color: SLOTS[1], values: added.map(function (a) { return a.other; })}],
+    xFmt: function (d) { return new Date(d).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}); },
+    tipFmt: function (d) { return new Date(d).toLocaleDateString(); }
+  });
+  var hist = $('c-history');
+  lineChart(hist, {
+    xs: H.map(function (r) { return new Date(r.date).getTime(); }), label: 'Coverage at each collection', height: 120,
+    series: [{name: 'Coverage', color: C.ok, area: true, values: H.map(function (r) { return parseFloat(r.coverage_pct) || 0; })}],
+    yMax: 100, yFmt: function (v) { return pct(v, 0); }, empty: 'The curve appears from the second collection.',
+    xFmt: function (x) { return new Date(x).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}); },
+    tipFmt: function (x) { return new Date(x).toLocaleString(); }
+  });
+}
+
+// ---------- live: activity, jobs, rechecks, logs
+var L = null, autoTimer = null;
+function openJobs() {
+  var jobs = (L && L.jobs || []).filter(function (j) { return j.status === 'pending' || j.status === 'running'; });
+  var logMoves = (L && L.moves || []).filter(function (m) { return m.status === 'pending' || m.status === 'running'; });
+  return {jobs: jobs, logMoves: logMoves};
+}
+function jobBadge(status) {
+  var cls = {pending: 'warn', running: 'info', done: 'ok', failed: 'ko'}[status] || '';
+  return el('span', {'class': 'badge ' + cls}, [status === 'running' ? icon('refresh', 'sm spin') : null, status]);
+}
+function dropList(items, render) {
+  var list = el('div', {'class': 'drop-list'});
+  if (!items.length) list.appendChild(el('div', {'class': 'item faint', text: 'Nothing pending.'}));
+  items.forEach(function (it) { list.appendChild(render(it)); });
+  return el('details', {'class': 'drop'}, [el('summary', {}, ['Show list', icon('chevron', 'sm chev')]), list]);
+}
+function renderQueueTiles() {
+  var q = $('k-queue'), r = $('k-rechecks');
+  if (!L) {
+    kpi(q, 'Queued jobs', 'move', '—', '', LIVE ? 'Loading…' : 'Live data needs seedbox run');
+    kpi(r, 'Rechecks pending', 'recheck', '—', '', LIVE ? 'Loading…' : 'Live data needs seedbox run');
+    return;
+  }
+  var o = openJobs(), moves = o.jobs.filter(function (j) { return j.action === 'move'; }).length;
+  var removes = o.jobs.filter(function (j) { return j.action === 'remove'; }).length;
+  var others = o.jobs.length - moves - removes;
+  var logOnly = o.logMoves.filter(function (m) { return !o.jobs.some(function (j) { return j.name === m.name; }); });
+  kpi(q, 'Queued jobs', 'move', o.jobs.length + logOnly.length, '', moves + ' moves · ' + removes + ' removals · ' + others + ' other' +
+    (logOnly.length ? ' · ' + logOnly.length + ' moves from the log' : ''));
+  q.appendChild(dropList(o.jobs.concat(logOnly.map(function (m) { return {action: 'move', status: m.status, name: m.name, submitted: Date.parse(m.time) / 1000}; })),
+    function (j) {
+      return el('div', {'class': 'item'}, [jobBadge(j.status), el('span', {'class': 'badge', text: j.action}),
+        el('span', {'class': 'name', title: j.name, text: j.name}), el('span', {'class': 'faint small', text: ago(j.submitted * 1000)})]);
+    }));
+  var checking = L.busy.filter(function (b) { return /^checking/.test(b.state); });
+  kpi(r, 'Rechecks pending', 'recheck', L.checking.count, '', bytes(L.checking.bytes) + ' left to read, one at a time');
+  r.appendChild(dropList(checking, function (b) {
+    return el('div', {'class': 'item'}, [el('span', {'class': 'badge ' + (b.progress > 0 ? 'info' : ''), text: pct(b.progress * 100, 1)}),
+      el('span', {'class': 'name', title: b.name, text: b.name}), el('span', {'class': 'faint small', text: bytes(b.size)})]);
+  }));
+}
+function renderActivity() {
+  var io = $('a-io'), tr = $('a-transfer'), busy = $('a-busy'), jobs = $('a-jobs');
+  if (!L) {
+    [io, tr].forEach(function (b) { kpi(b, b === io ? 'Disk queue' : 'Transfer', b === io ? 'disk' : 'activity', '—', '', LIVE ? 'Loading…' : 'Live data needs seedbox run'); });
+    return;
+  }
+  var wait = L.io.average_time_queue_ms;
+  kpi(io, 'Disk queue', 'disk', L.io.queued_io_jobs, 'jobs', wait + ' ms average wait' + (wait >= 1000 ? ': disk saturated' : ''));
+  io.querySelector('.value').style.color = wait >= 1000 ? C.ko : L.io.queued_io_jobs ? C.warn : C.ok;
+  kpi(tr, 'Transfer', 'activity', rate(L.io.up_speed), 'up', 'Down ' + rate(L.io.dl_speed) + ' · ' + L.io.peers + ' peers · qBittorrent ' + L.version);
+
+  clear(busy);
+  if (!L.busy.length) busy.appendChild(el('p', {'class': 'empty', text: 'Nothing moving, checking or in error.'}));
+  else {
+    var tb = el('tbody');
+    L.busy.forEach(function (b) {
+      tb.appendChild(el('tr', {}, [el('td', {}, [stateBadge(b.state)]), el('td', {'class': 'name'}, [el('div', {'class': 't', title: b.name, text: b.name})]),
+        el('td', {'class': 'opt muted', text: b.category}), el('td', {'class': 'num', text: bytes(b.size)}), el('td', {'class': 'num', text: pct(b.progress * 100, 1)})]));
+    });
+    busy.appendChild(el('div', {'class': 'table-wrap'}, [el('table', {'class': 'dense'}, [el('thead', {}, [el('tr', {}, [
+      el('th', {text: 'State'}), el('th', {text: 'Torrent'}), el('th', {'class': 'opt', text: 'Category'}), el('th', {'class': 'num', text: 'Size'}), el('th', {'class': 'num', text: 'Progress'})])]), tb])]));
+  }
+  clear(jobs);
+  var list = (L.jobs || []).slice().reverse();
+  if (!list.length) jobs.appendChild(el('p', {'class': 'empty', text: 'No job sent from the dashboard yet.'}));
+  else {
+    var jb = el('tbody');
+    list.slice(0, 100).forEach(function (j) {
+      jb.appendChild(el('tr', {}, [el('td', {}, [jobBadge(j.status)]), el('td', {text: ACTION_TEXT[j.action] || j.action}),
+        el('td', {'class': 'name'}, [el('div', {'class': 't', title: j.name, text: j.name})]),
+        el('td', {'class': 'opt path', text: j.target || ''}), el('td', {'class': 'num muted', text: ago(j.submitted * 1000)})]));
+    });
+    jobs.appendChild(el('div', {'class': 'table-wrap'}, [el('table', {'class': 'dense'}, [el('thead', {}, [el('tr', {}, [
+      el('th', {text: 'Status'}), el('th', {text: 'Action'}), el('th', {text: 'Torrent'}), el('th', {'class': 'opt', text: 'Target'}), el('th', {'class': 'num', text: 'Sent'})])]), jb])]));
+  }
+}
+function renderLogs() {
+  var box = $('logs'); clear(box);
+  if (!L) { box.appendChild(el('p', {'class': 'empty', text: LIVE ? 'Loading…' : 'Live data needs seedbox run.'})); return; }
+  var rows = L.events.slice().reverse();
+  if (!rows.length) { box.appendChild(el('p', {'class': 'empty', text: 'No move, removal or error in the log.'})); return; }
+  var tb = el('tbody');
+  rows.forEach(function (e) {
+    var cls = {info: 'info', warn: 'warn', ko: 'ko'}[e.level];
+    tb.appendChild(el('tr', {}, [el('td', {'class': 'when', text: new Date(e.time).toLocaleString()}),
+      el('td', {}, [el('span', {'class': 'badge ' + cls, text: e.level === 'ko' ? 'error' : e.level === 'warn' ? 'warning' : 'info'})]),
+      el('td', {text: e.message})]));
+  });
+  box.appendChild(el('div', {'class': 'table-wrap'}, [el('table', {'class': 'log'}, [tb])]));
+}
+function refreshLive() {
+  if (!LIVE) { renderQueueTiles(); renderActivity(); renderLogs(); return Promise.resolve(); }
+  $('live-refresh').disabled = true;
+  document.querySelectorAll('[data-live]').forEach(function (n) { n.classList.add('stale'); });
+  return api('api/status').then(function (st) { L = st; }).catch(function (e) {
+    toast('qBittorrent status failed: ' + e.message);
+  }).then(function () {
+    document.querySelectorAll('[data-live]').forEach(function (n) { n.classList.remove('stale'); });
+    $('live-refresh').disabled = false;
+    $('live-time').textContent = L ? 'Updated ' + new Date().toLocaleTimeString() : '';
+    renderQueueTiles(); renderActivity(); renderLogs();
+  });
+}
+function setAuto(on) {
+  clearInterval(autoTimer);
+  $('auto').setAttribute('aria-pressed', on ? 'true' : 'false');
+  if (on && LIVE) autoTimer = setInterval(function () { if (!document.hidden) { refreshLive(); refreshMetrics(); } }, 60000);
+}
+
+// ---------- system metrics
+var M = null, hours = 24;
+function renderSystem() {
+  var ids = ['m-cpu', 'm-mem', 'm-disk', 'm-net'];
+  if (!M) { ids.forEach(function (id) { clear($(id)).appendChild(el('p', {'class': 'nodata', text: LIVE ? 'Loading…' : 'Live data needs seedbox run.'})); }); return; }
+  var rows = M.series, xs = rows.map(function (r) { return r.t * 1000; });
+  function col(k) { return rows.map(function (r) { return r[k] === undefined ? null : r[k]; }); }
+  var tf = function (x) { var d = new Date(x); return hours > 48 ? d.toLocaleDateString(undefined, {day: 'numeric', month: 'short'}) : d.toLocaleTimeString(undefined, {hour: '2-digit', minute: '2-digit'}); };
+  var tt = function (x) { return new Date(x).toLocaleString(); };
+  var empty = 'Samples appear every ' + Math.round((M.interval || 300) / 60) + ' min once seedbox run is up.';
+  lineChart($('m-cpu'), {xs: xs, series: [{name: 'CPU', color: SLOTS[0], values: col('cpu_pct')}, {name: 'IO wait', color: SLOTS[1], values: col('iowait_pct')}],
+    yMax: 100, yFmt: function (v) { return pct(v); }, xFmt: tf, tipFmt: tt, empty: empty, label: 'CPU and IO wait'});
+  lineChart($('m-mem'), {xs: xs, series: [{name: 'Memory used', color: SLOTS[2], area: true, values: col('mem_used_pct')}],
+    yMax: 100, yFmt: function (v) { return pct(v); }, xFmt: tf, tipFmt: tt, empty: empty, label: 'Memory used'});
+  lineChart($('m-disk'), {xs: xs, series: [{name: 'Busiest disk', color: SLOTS[3], area: true, values: col('disk_busy_pct')}],
+    yMax: 100, yFmt: function (v) { return pct(v); }, xFmt: tf, tipFmt: tt, empty: empty, label: 'Disk busy'});
+  lineChart($('m-net'), {xs: xs, series: [{name: 'Upload', color: SLOTS[0], values: col('up_bps')}, {name: 'Download', color: SLOTS[4], values: col('dl_bps')}],
+    yFmt: function (v) { return rate(v); }, xFmt: tf, tipFmt: tt, empty: empty, label: 'qBittorrent transfer'});
+  var vol = $('k-volume'); clear(vol);
+  vol.appendChild(el('div', {'class': 'label'}, [icon('disk', 'sm'), 'Volume usage']));
+  (M.volumes || []).slice(0, 2).forEach(function (v) {
+    var p = v.total ? v.used / v.total * 100 : 0, g = el('div');
+    gauge(g, p, 'Volume', p >= 90 ? C.ko : p >= 80 ? C.warn : C.ok);
+    vol.appendChild(el('div', {'class': 'gauge-wrap'}, [g, el('div', {}, [el('div', {'class': 'value', text: pct(p)}),
+      el('div', {'class': 'foot', text: bytes(v.free) + ' free of ' + bytes(v.total)})])]));
+  });
+  if (!(M.volumes || []).length) vol.appendChild(el('div', {'class': 'foot', text: 'No volume readable.'}));
+}
+function refreshMetrics() {
+  if (!LIVE) { renderSystem(); clear($('k-volume')).appendChild(el('div', {'class': 'foot', text: 'Live data needs seedbox run.'})); return; }
+  api('api/metrics?hours=' + hours).then(function (m) { M = m; renderSystem(); }).catch(function (e) { toast('Metrics failed: ' + e.message); });
+}
+
+// ---------- duplicates
+var dupShown = 10;
+function renderDuplicates() {
+  var box = $('dups'); clear(box);
+  var groups = D.duplicates, kinds = {same_tracker: 0, versions: 0, episodes: 0}, extras = [];
+  groups.forEach(function (g) { kinds[g.kind]++; if (g.kind === 'same_tracker') extras = extras.concat(g.remove); });
+  kpi($('d-same'), 'Same file, same tracker', 'duplicates', kinds.same_tracker, 'groups', extras.length + ' redundant torrents to remove');
+  if (extras.length) {
+    $('d-same').appendChild(el('div', {}, [el('button', {'class': 'btn sm', type: 'button', onclick: function () {
+      confirmAct('remove', extras, 'Remove ' + extras.length + ' redundant torrents?',
+        'In each group, the most seeded complete torrent is kept. Library files are never touched.');
+    }}, [icon('remove', 'sm'), 'Remove all extras'])]));
+  }
+  kpi($('d-versions'), 'Several versions', 'library', kinds.versions, 'works', 'Same title and year, different files');
+  kpi($('d-episodes'), 'Episodes twice', 'logs', kinds.episodes, 'seasons', 'Same episode number in one season folder');
+  if (!groups.length) { box.appendChild(el('p', {'class': 'empty', text: 'No duplicate found.'})); return; }
+  var tb = el('tbody');
+  groups.slice(0, dupShown).forEach(function (g) {
+    var detail, action = null;
+    if (g.kind === 'same_tracker') {
+      detail = el('div', {'class': 'muted'}, [g.torrents.length + ' torrents on ' + (TNAME[g.tracker] || g.tracker) + ', keeps ',
+        el('b', {style: 'color:var(--t1);font-weight:500', text: short((BYHASH[g.keep] || {}).name || '', 60)})]);
+      action = fixButton('remove_extra', {keep: g.keep, remove: g.remove});
+    } else if (g.kind === 'versions') {
+      detail = el('div', {}, g.entries.map(function (i) {
+        var e = D.entries[i];
+        return el('div', {'class': 'cell-flex', style: 'margin:4px 0'}, [statusBadge(e), i === g.best ? el('span', {'class': 'badge ok', text: 'best'}) : null,
+          el('span', {'class': 'badge', text: e.resolution || '?'}), el('span', {'class': 'muted', text: e.folder + ' · ' + bytes(e.size)}),
+          el('span', {'class': 't', title: e.name, text: short(e.name.split('/').pop(), 70)})]);
+      }));
+    } else {
+      detail = el('div', {'class': 'muted', text: 'Episodes: ' + g.episodes.join(', ')});
+    }
+    var kindBadge = {same_tracker: ['ko', 'Same tracker'], versions: ['warn', 'Versions'], episodes: ['warn', 'Episodes']}[g.kind];
+    tb.appendChild(el('tr', {}, [el('td', {}, [el('span', {'class': 'badge ' + kindBadge[0], text: kindBadge[1]})]),
+      el('td', {'class': 'name'}, [el('div', {'class': 't', title: g.title, text: g.title}), detail]), el('td', {'class': 'num'}, [action])]));
+  });
+  box.appendChild(el('div', {'class': 'table-wrap'}, [el('table', {}, [el('thead', {}, [el('tr', {}, [
+    el('th', {text: 'Kind'}), el('th', {text: 'Content'}), el('th', {'class': 'num', text: 'Fix'})])]), tb])]));
+  if (groups.length > dupShown) {
+    box.appendChild(el('div', {'class': 'more'}, [el('button', {'class': 'btn', type: 'button', text: 'Show all ' + groups.length + ' groups',
+      onclick: function () { dupShown = groups.length; renderDuplicates(); }})]));
+  }
+}
+
+// ---------- library
+var filter = 'all', folder = '', missing = '', query = '', sortKey = 'size', desc = true, shown = 100, openRow = null;
+var selected = {};
+D.entries.forEach(function (e, i) {
+  e._i = i;
+  e._problems = e.issues.filter(isProblem).length;
+  e._dup = e.issues.some(isDup);
+  e._k = (e.name + ' ' + e.folder + ' ' + e.trackers.map(function (k) { return TNAME[k] || k; }).join(' ')).toLowerCase();
+  e._main = e.torrents.filter(function (h) { return BYHASH[h] && !BYHASH[h].link; });
+});
+var FILTERS = [
+  ['all', 'All', function () { return true; }],
+  ['everywhere', 'Seeded everywhere', function (e) { return e.coverage === 'everywhere' && e.status === 'seeded'; }],
+  ['partial', 'Partially seeded', function (e) { return e.coverage === 'partial'; }],
+  ['none', 'On disk, not seeded', function (e) { return e.coverage === 'none'; }],
+  ['incomplete', 'Downloading', function (e) { return e.status === 'incomplete'; }],
+  ['problems', 'Problems', function (e) { return e._problems > 0; }],
+  ['duplicates', 'Duplicates', function (e) { return e._dup; }]
+];
+function setFilter(f) {
+  filter = f; shown = 100;
+  document.querySelectorAll('#lib-chips .chip').forEach(function (c) { c.setAttribute('aria-pressed', c.dataset.f === f ? 'true' : 'false'); });
+  renderLibrary();
+}
+function buildLibraryControls() {
+  var chips = $('lib-chips');
+  FILTERS.forEach(function (f) {
+    var n = D.entries.filter(f[2]).length;
+    chips.appendChild(el('button', {'class': 'chip', type: 'button', 'data-f': f[0], 'aria-pressed': f[0] === 'all' ? 'true' : 'false',
+      onclick: function () { setFilter(f[0]); }}, [icon('check', 'check'), f[1], el('span', {'class': 'n', text: String(n)})]));
+  });
+  var fs = $('lib-folder');
+  var names = {};
+  D.entries.forEach(function (e) { names[e.folder] = (names[e.folder] || 0) + 1; });
+  Object.keys(names).sort().forEach(function (f) { fs.appendChild(el('option', {value: f, text: f + ' (' + names[f] + ')'})); });
+  fs.onchange = function () { folder = fs.value; shown = 100; renderLibrary(); };
+  var ms = $('lib-missing');
+  TRACKERS.forEach(function (t) { ms.appendChild(el('option', {value: t.key, text: 'Missing on ' + t.name})); });
+  ms.onchange = function () { missing = ms.value; shown = 100; renderLibrary(); };
+  document.querySelectorAll('#lib-table th[data-sort]').forEach(function (th) {
+    th.onclick = function () { var k = th.dataset.sort; desc = k === sortKey ? !desc : k !== 'name' && k !== 'folder'; sortKey = k; renderLibrary(); };
+  });
+  var dest = $('batch-dest');
+  FOLDERS.forEach(function (f) { dest.appendChild(el('option', {value: f.path, text: f.label})); });
+  $('batch-move').onclick = function () {
+    var entries = Object.keys(selected).map(function (i) { return D.entries[i]; });
+    var hashes = [], skipped = 0;
+    entries.forEach(function (e) { if (e._main.length) hashes = hashes.concat(e._main); else skipped++; });
+    if (!hashes.length) { toast('None of the selected entries has a library torrent to move.'); return; }
+    var target = FOLDERS.filter(function (f) { return f.path === dest.value; })[0];
+    confirmDialog('Move ' + hashes.length + ' torrent(s) to ' + target.label + '?',
+      'qBittorrent moves them one at a time; cross-seed links stay valid (hardlinks).' + (skipped ? ' ' + skipped + ' selected entries have no library torrent and are skipped.' : ''), 'Move')
+      .then(function () { return act('move', hashes, {location: target.path}); }, function () {});
+  };
+  $('batch-recheck').onclick = function () { batchAct('recheck'); };
+  $('batch-start').onclick = function () { batchAct('start'); };
+  $('batch-clear').onclick = function () { selected = {}; renderLibrary(); };
+  $('lib-all').onchange = function () {
+    var rows = visibleEntries().slice(0, shown);
+    if ($('lib-all').checked) rows.forEach(function (e) { selected[e._i] = true; }); else selected = {};
+    renderLibrary();
+  };
+}
+function batchAct(action) {
+  var hashes = [];
+  Object.keys(selected).forEach(function (i) { hashes = hashes.concat(D.entries[i].torrents); });
+  if (!hashes.length) { toast('No torrent in the selection.'); return; }
+  act(action, hashes);
+}
+function visibleEntries() {
+  var fn = FILTERS.filter(function (f) { return f[0] === filter; })[0][2];
+  var rows = D.entries.filter(function (e) {
+    return fn(e) && (!folder || e.folder === folder) && (!missing || e.trackers.indexOf(missing) < 0) && (!query || e._k.indexOf(query) >= 0);
+  });
+  rows.sort(function (a, b) {
+    var x, y;
+    if (sortKey === 'trackers') { x = a.trackers.length; y = b.trackers.length; }
+    else if (sortKey === 'issues') { x = a.issues.length; y = b.issues.length; }
+    else { x = a[sortKey]; y = b[sortKey]; }
+    if (typeof x === 'string') { x = x.toLowerCase(); y = y.toLowerCase(); }
+    return x < y ? (desc ? 1 : -1) : x > y ? (desc ? -1 : 1) : 0;
+  });
+  return rows;
+}
+function entryDetail(e) {
+  var box = el('div', {'class': 'detail-grid'});
+  box.appendChild(el('div', {'class': 'muted'}, [e.folder + ' · ' + e.files + ' file(s) · ' + bytes(e.size) + ' · uploaded ' + bytes(e.uploaded)]));
+  if (e.issues.length) {
+    var list = el('div');
+    e.issues.forEach(function (i) {
+      var kind = isProblem(i) ? (i.code === 'same_tracker' ? 'warn' : 'ko') : 'warn';
+      var t = i.torrent && BYHASH[i.torrent];
+      list.appendChild(el('div', {'class': 'issue'}, [el('span', {'class': 'badge ' + kind}, [icon(kind === 'ko' ? 'warn' : 'info', 'sm'), i.code.replace('_', ' ')]),
+        el('div', {'class': 'txt'}, [i.text, t ? el('div', {'class': 'faint small', text: (TNAME[t.tracker] || t.tracker) + ' · ' + t.name}) : null]),
+        el('div', {'class': 'chips'}, (i.fixes || []).map(function (f) { return fixButton(f, i, e); }))]));
+    });
+    box.appendChild(list);
+  }
+  if (e.torrents.length) {
+    var tb = el('tbody');
+    e.torrents.forEach(function (h) {
+      var t = BYHASH[h];
+      if (!t) return;
+      tb.appendChild(el('tr', {}, [el('td', {}, [trackerChip(t.tracker)]), el('td', {}, [stateBadge(t.state)]),
+        el('td', {'class': 'name'}, [el('div', {'class': 't', title: t.name, text: t.name}), el('div', {'class': 'path', text: t.content_path})]),
+        el('td', {}, [el('span', {'class': 'badge ' + (t.link ? '' : 'info'), text: t.link ? 'cross-seed link' : 'library'})]),
+        el('td', {'class': 'num', text: t.seeds + ' / ' + t.leechs}), el('td', {'class': 'num', text: fix(t.ratio, 2)}),
+        el('td', {'class': 'num'}, [el('div', {'class': 'chips', style: 'justify-content:flex-end;flex-wrap:nowrap'}, [
+          el('button', {'class': 'btn sm', type: 'button', title: 'Recheck', 'aria-label': 'Recheck', onclick: function (ev) { ev.stopPropagation(); act('recheck', [h]); }}, [icon('recheck', 'sm')]),
+          /^(stopped|paused)/.test(t.state) ? el('button', {'class': 'btn sm', type: 'button', title: 'Start', 'aria-label': 'Start', onclick: function (ev) { ev.stopPropagation(); act('start', [h]); }}, [icon('start', 'sm')]) : null,
+          el('button', {'class': 'btn sm danger', type: 'button', title: 'Remove', 'aria-label': 'Remove', onclick: function (ev) {
+            ev.stopPropagation(); confirmAct('remove', [h], 'Remove this torrent?', t.name + ' on ' + (TNAME[t.tracker] || t.tracker) + '. The library file is never touched.');
+          }}, [icon('remove', 'sm')])])])]));
+    });
+    box.appendChild(el('div', {'class': 'table-wrap'}, [el('table', {'class': 'subtable'}, [el('thead', {}, [el('tr', {}, [
+      el('th', {text: 'Tracker'}), el('th', {text: 'State'}), el('th', {text: 'Torrent'}), el('th', {text: 'Where'}),
+      el('th', {'class': 'num', text: 'Seeds / leechers'}), el('th', {'class': 'num', text: 'Ratio'}), el('th', {'class': 'num', text: 'Actions'})])]), tb])]));
+  }
+  var rel = e.folder + '/' + e.name.split('/').pop();
+  if (e._main.length) {
+    var sel = el('select', {'class': 'select', 'aria-label': 'Destination folder'});
+    FOLDERS.forEach(function (f) { if (f.label !== e.folder) sel.appendChild(el('option', {value: f.path, text: f.label})); });
+    box.appendChild(el('div', {'class': 'cell-flex', style: 'flex-wrap:wrap'}, [el('span', {'class': 'muted', text: 'Move with qBittorrent to'}), sel,
+      el('button', {'class': 'btn sm filled', type: 'button', onclick: function (ev) {
+        ev.stopPropagation();
+        var target = FOLDERS.filter(function (f) { return f.path === sel.value; })[0];
+        confirmDialog('Move to ' + target.label + '?', e.name + ' (' + bytes(e.size) + '). Cross-seed links stay valid.', 'Move')
+          .then(function () { return act('move', e._main, {location: target.path}); }, function () {});
+      }}, [icon('move', 'sm'), 'Move'])]));
+  } else {
+    var cmd = 'mv -n "' + rel + '" "' + (FOLDERS[0] ? FOLDERS[0].label : 'films/archives') + '/"';
+    box.appendChild(el('div', {}, [el('div', {'class': 'muted small', style: 'margin-bottom:8px', text: 'No library torrent: qBittorrent cannot move it. From the media share root:'}),
+      el('div', {'class': 'cmd'}, [el('code', {text: cmd}), el('button', {'class': 'btn sm', type: 'button', onclick: function (ev) {
+        ev.stopPropagation(); navigator.clipboard.writeText(cmd).then(function () { toast('Command copied.'); });
+      }}, [icon('copy', 'sm'), 'Copy'])])]));
+  }
+  return box;
+}
+function renderLibrary() {
+  var rows = visibleEntries(), body = $('lib-body'); clear(body);
+  $('lib-count').textContent = rows.length + ' of ' + D.entries.length;
+  document.querySelectorAll('#lib-table th[data-sort]').forEach(function (th) { th.classList.toggle('sorted', th.dataset.sort === sortKey); });
+  var frag = document.createDocumentFragment();
+  rows.slice(0, shown).forEach(function (e) {
+    var cb = el('input', {type: 'checkbox', 'aria-label': 'Select', onclick: function (ev) { ev.stopPropagation(); }});
+    cb.checked = !!selected[e._i];
+    cb.onchange = function () { if (cb.checked) selected[e._i] = true; else delete selected[e._i]; updateBatch(); };
+    var issues = el('td', {'class': 'num'});
+    if (e._problems) issues.appendChild(el('span', {'class': 'badge ko', text: String(e._problems)}));
+    else if (e._dup) issues.appendChild(el('span', {'class': 'badge warn', text: 'dup'}));
+    var tr = el('tr', {'class': 'row' + (openRow === e._i ? ' open' : '')}, [el('td', {}, [cb]), el('td', {}, [statusBadge(e)]),
+      el('td', {'class': 'name'}, [el('div', {'class': 't', title: e.name, text: label(e.name)}), el('div', {'class': 'faint small', text: e.folder})]),
+      el('td', {'class': 'opt'}, [el('div', {'class': 'tracks'}, e.trackers.map(trackerChip))]),
+      el('td', {'class': 'num', text: bytes(e.size)}), el('td', {'class': 'num opt', text: bytes(e.uploaded)}), issues]);
+    tr.onclick = function () { openRow = openRow === e._i ? null : e._i; renderLibrary(); };
+    frag.appendChild(tr);
+    if (openRow === e._i) frag.appendChild(el('tr', {'class': 'detail'}, [el('td', {colspan: 7}, [entryDetail(e)])]));
+  });
+  body.appendChild(frag);
+  $('lib-empty').hidden = rows.length > 0;
+  var more = $('lib-more'); clear(more);
+  if (rows.length > shown) more.appendChild(el('button', {'class': 'btn', type: 'button', onclick: function () { shown += 200; renderLibrary(); }, text: 'Show ' + Math.min(200, rows.length - shown) + ' more'}));
+  updateBatch();
+}
+function updateBatch() {
+  var n = Object.keys(selected).length;
+  $('batch').classList.toggle('show', n > 0);
+  $('batch-count').textContent = n + ' selected';
+}
+
+// ---------- outside library and warnings
+var REASONS = {
+  link_only: ['warn', 'Only cross-seed links', 'The library copy was removed; the torrent seeds from its link folder.'],
+  outside: ['info', 'Outside the library', 'Stored outside the library roots (another share, download folder).'],
+  downloading: ['info', 'Downloading', 'Not on disk yet.'],
+  missing: ['ko', 'Files missing', 'qBittorrent points to files that are not on disk.'],
+  unrecognised: ['warn', 'Not recognised', 'Inside a library root but matched to no entry.']
+};
+function renderOutside() {
+  var box = $('outside'); clear(box);
+  if (!D.unmatched.length) { box.appendChild(el('p', {'class': 'empty', text: 'Every torrent matches a library entry.'})); return; }
+  var tb = el('tbody');
+  D.unmatched.forEach(function (u) {
+    var r = REASONS[u.reason] || ['', u.reason, ''];
+    tb.appendChild(el('tr', {}, [el('td', {}, [el('span', {'class': 'badge ' + r[0], title: r[2], text: r[1]})]),
+      el('td', {'class': 'name'}, [el('div', {'class': 't', title: u.name, text: u.name}), el('div', {'class': 'path', text: u.path})]),
+      el('td', {}, [el('div', {'class': 'tracks'}, u.trackers.map(trackerChip))]), el('td', {}, [stateBadge(u.state)])]));
+  });
+  box.appendChild(el('div', {'class': 'table-wrap'}, [el('table', {}, [el('thead', {}, [el('tr', {}, [
+    el('th', {text: 'Why'}), el('th', {text: 'Torrent'}), el('th', {text: 'Tracker'}), el('th', {text: 'State'})])]), tb])]));
+  var legend = el('div', {'class': 'legend'});
+  Object.keys(REASONS).forEach(function (k) { legend.appendChild(el('span', {}, [el('b', {style: 'color:var(--t1);font-weight:500', text: REASONS[k][1] + ':'}), REASONS[k][2]])); });
+  box.appendChild(legend);
+}
+function renderWarnings() {
+  var box = $('warnings'); clear(box);
+  if (!D.warnings.length) { box.appendChild(el('p', {'class': 'empty', text: 'No warning.'})); return; }
+  D.warnings.forEach(function (w) { box.appendChild(el('div', {'class': 'issue'}, [el('span', {'class': 'badge warn', text: 'warning'}), el('div', {'class': 'txt', text: w})])); });
+}
+
+// ---------- navigation, collect, wiring
+function wireNav() {
+  var links = document.querySelectorAll('.rail a[href^="#"]');
+  var crumb = $('crumb');
+  var obs = new IntersectionObserver(function (items) {
+    items.forEach(function (it) {
+      if (!it.isIntersecting) return;
+      links.forEach(function (a) {
+        var on = a.getAttribute('href') === '#' + it.target.id;
+        a.classList.toggle('active', on);
+        if (on) crumb.textContent = a.textContent.trim();
+      });
+    });
+  }, {rootMargin: '-80px 0px -60% 0px'});
+  document.querySelectorAll('main section[id]').forEach(function (s) { obs.observe(s); });
+}
+function collectNow() {
+  if (!LIVE || !D.actions) { toast(LIVE ? 'Actions are disabled: set [service] actions = true.' : 'Needs seedbox run.'); return; }
+  var b = $('collect'); b.disabled = true;
+  api('api/collect', {}).then(function () {
+    toast('Collection started, the page reloads when it is done.');
+    var poll = setInterval(function () {
+      api('api/collect').then(function (st) {
+        if (!st.running) { clearInterval(poll); if (st.error) { toast('Collection failed: ' + st.error); b.disabled = false; } else location.reload(); }
+      });
+    }, 4000);
+  }).catch(function (e) { toast('Failed: ' + e.message); b.disabled = false; });
+}
+
+function init() {
+  renderHero();
+  renderOverview();
+  renderDuplicates();
+  buildLibraryControls();
+  renderLibrary();
+  renderOutside();
+  renderWarnings();
+  renderQueueTiles(); renderActivity(); renderLogs();
+  wireNav();
+  $('search').addEventListener('input', function (e) {
+    query = e.target.value.toLowerCase(); shown = 100; renderLibrary();
+    if (query && location.hash !== '#library') document.getElementById('library').scrollIntoView();
+  });
+  $('live-refresh').onclick = function () { refreshLive(); refreshMetrics(); };
+  $('auto').onclick = function () { setAuto($('auto').getAttribute('aria-pressed') !== 'true'); };
+  $('collect').onclick = collectNow;
+  if (!D.actions) $('collect').hidden = true;
+  document.querySelectorAll('#m-range .chip').forEach(function (c) {
+    c.onclick = function () {
+      hours = Number(c.dataset.h);
+      document.querySelectorAll('#m-range .chip').forEach(function (x) { x.setAttribute('aria-pressed', x === c ? 'true' : 'false'); });
+      refreshMetrics();
+    };
+  });
+  var resize;
+  window.addEventListener('resize', function () { clearTimeout(resize); resize = setTimeout(function () { renderOverview(); renderSystem(); }, 200); });
+  refreshLive(); refreshMetrics();
+  setAuto(LIVE);
+}
+init();

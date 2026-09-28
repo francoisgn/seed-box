@@ -8,10 +8,9 @@ import os
 import signal
 import sys
 import threading
-import time
 from datetime import datetime
 
-from seedbox import __version__, collect, prowlarr, report, status, ui
+from seedbox import __version__, actions, collect, metrics, prowlarr, report, status, ui
 from seedbox import schedule as sched
 from seedbox.api import ApiError
 from seedbox.config import ConfigError, fingerprint, load
@@ -79,23 +78,31 @@ def cmd_check(cfg):
 def cmd_status(cfg):
     """What qBittorrent is busy with: rechecks, moves, errors, disk queue."""
     with ui.Spinner("Asking qBittorrent"):
-        st = status.gather(QbtClient(cfg.qbt_url, cfg.qbt_username, cfg.qbt_password))
+        st = status.gather(QbtClient(cfg.qbt_url, cfg.qbt_username, cfg.qbt_password), cfg=cfg)
     status.show(st, ui)
     return 0
 
 
 class _Handler(http.server.SimpleHTTPRequestHandler):
-    """Serves the output directory, plus GET /api/status (live, read-only)."""
+    """Serves the output directory and the dashboard API.
+
+    GET  /api/status   what qBittorrent is busy with, plus seedbox jobs
+    GET  /api/metrics  host and qBittorrent samples (?hours=48)
+    GET  /api/collect  state of the collection
+    POST /api/collect  collect now
+    POST /api/action   move, recheck, start, skip extras, remove ([service] actions)
+
+    POSTs need the X-Seedbox header and a JSON body: a page from another site
+    cannot send that without a CORS preflight, which is never granted here.
+    """
 
     cfg = None
+    service = None
 
-    def do_GET(self):
-        if self.path.split("?")[0] != "/api/status":
-            return super().do_GET()
-        try:
-            code, body = 200, status.gather(QbtClient(self.cfg.qbt_url, self.cfg.qbt_username, self.cfg.qbt_password))
-        except ApiError as exc:
-            code, body = 502, {"error": str(exc)}
+    def _client(self):
+        return QbtClient(self.cfg.qbt_url, self.cfg.qbt_username, self.cfg.qbt_password)
+
+    def _send(self, code, body):
         data = json.dumps(body, ensure_ascii=False).encode()
         self.send_response(code)
         self.send_header("Content-Type", "application/json; charset=utf-8")
@@ -104,8 +111,91 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def do_GET(self):
+        path, _, query = self.path.partition("?")
+        params = dict(p.split("=", 1) for p in query.split("&") if "=" in p)
+        if path == "/api/status":
+            try:
+                return self._send(200, status.gather(self._client(), cfg=self.cfg))
+            except ApiError as exc:
+                return self._send(502, {"error": str(exc)})
+        if path == "/api/metrics":
+            try:
+                hours = min(max(float(params.get("hours", 48)), 1), 24 * self.cfg.metrics_days)
+            except ValueError:
+                hours = 48
+            roots = [os.path.dirname(r) or r for r in self.cfg.roots] + [self.cfg.output_dir]
+            return self._send(
+                200,
+                {
+                    "series": metrics.series(self.cfg, hours),
+                    "volumes": metrics.volumes(roots),
+                    "interval": self.cfg.metrics_interval,
+                },
+            )
+        if path == "/api/collect":
+            return self._send(200, self.service.collect_state())
+        return super().do_GET()
+
+    def do_POST(self):
+        path = self.path.partition("?")[0]
+        if self.headers.get("X-Seedbox") != "1" or "application/json" not in (self.headers.get("Content-Type") or ""):
+            return self._send(403, {"error": "missing X-Seedbox header or JSON content type"})
+        origin = self.headers.get("Origin")
+        if origin and origin.split("://", 1)[-1] != self.headers.get("Host"):
+            return self._send(403, {"error": "cross-origin request refused"})
+        length = min(int(self.headers.get("Content-Length") or 0), 1_000_000)
+        body = self.rfile.read(length)
+        if path == "/api/action":
+            code, result = actions.handle(self.cfg, self._client, body)
+            return self._send(code, result)
+        if path == "/api/collect":
+            if not self.cfg.actions:
+                return self._send(403, {"error": "actions are disabled ([service] actions = true to enable)"})
+            return self._send(202, self.service.trigger())
+        return self._send(404, {"error": "unknown endpoint"})
+
     def log_message(self, *args):
         pass
+
+
+class _Service:
+    """Collection loop of `seedbox run`: scheduled, or triggered from the dashboard."""
+
+    def __init__(self, cfg):
+        self.cfg = cfg
+        self.wake = threading.Event()
+        self.lock = threading.Lock()
+        self.state = {"running": False, "last": None, "error": None, "reason": None}
+
+    def collect_state(self):
+        return dict(self.state)
+
+    def trigger(self):
+        if not self.state["running"]:
+            self.state["reason"] = "requested from the dashboard"
+            self.wake.set()
+        return self.collect_state()
+
+    def collect(self, reason):
+        with self.lock:
+            self.state.update(running=True, reason=reason, error=None)
+            try:
+                cmd_collect(self.cfg)
+            except (ApiError, OSError) as exc:
+                self.state["error"] = str(exc)
+                ui.ko(f"collection failed: {exc}")
+            finally:
+                self.state.update(running=False, last=datetime.now().astimezone().isoformat(timespec="seconds"))
+
+    def loop(self, needed, why):
+        while True:
+            if needed:
+                self.collect(why)
+            needed, why = True, "schedule"
+            if self.wake.wait(_wait(self.cfg)):
+                self.wake.clear()
+                why = self.state.get("reason") or "requested"
 
 
 def _schedule_text(cfg):
@@ -150,26 +240,24 @@ def startup_collection(cfg, now=None):
 
 
 def cmd_run(cfg):
-    """Serve the output directory, collect if needed, then on schedule."""
+    """Serve the dashboard and its API, collect if needed, then on schedule or on demand."""
     # PID 1 in a container ignores SIGTERM by default: `docker stop` would wait
     # its whole timeout, then kill (exit 137). Exit right away instead.
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     os.makedirs(cfg.output_dir, exist_ok=True)
-    _Handler.cfg = cfg
+    service = _Service(cfg)
+    _Handler.cfg, _Handler.service = cfg, service
     handler = functools.partial(_Handler, directory=cfg.output_dir)
     server = http.server.ThreadingHTTPServer(("0.0.0.0", cfg.port), handler)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     ui.ok(f"serving {cfg.output_dir} on port {cfg.port}, collection {_schedule_text(cfg)}")
+    ui.info(f"dashboard actions: {'enabled' if cfg.actions else 'disabled'}")
+    if cfg.metrics_interval > 0:
+        client = functools.partial(QbtClient, cfg.qbt_url, cfg.qbt_username, cfg.qbt_password)
+        threading.Thread(target=metrics.loop, args=(cfg, client, ui), daemon=True).start()
     needed, why = startup_collection(cfg)
     ui.info(f"startup collection: {'yes' if needed else 'skipped'} ({why})")
-    while True:
-        if needed:
-            try:
-                cmd_collect(cfg)
-            except (ApiError, OSError) as exc:
-                ui.ko(f"collection failed: {exc}")
-        needed = True
-        time.sleep(_wait(cfg))
+    service.loop(needed, why)
 
 
 def main(argv=None):

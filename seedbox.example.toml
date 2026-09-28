@@ -15,6 +15,8 @@ max_depth = 4
 # Folders never walked (cross-seed link dir, NAS metadata, recycle bins).
 # skip_dirs = [".cross-seed", "@eaDir", "#recycle", "#snapshot", ".Trash-1000"]
 # media_ext = [".mkv", ".mp4", ".avi", ".m4v", ".ts", ".iso"]
+# Folders holding cross-seed links (names): their torrents are linked copies.
+# link_dirs = [".cross-seed"]
 
 [qbittorrent]
 url = "http://qbittorrent:8080"
@@ -48,3 +50,9 @@ csv_delimiter = ","             # ";" opens straight in Excel with a French loca
 schedule = "sun 04:00"
 interval_hours = 24
 port = 8080                     # dashboard HTTP port, no auth: LAN or reverse proxy
+# Dashboard actions through qBittorrent: move, recheck, start, skip missing
+# extras, remove torrents, collect now. Off by default (no auth on the page).
+actions = false
+# Host and qBittorrent sampling for the system charts (seconds, 0 = off).
+metrics_interval = 300
+metrics_days = 14

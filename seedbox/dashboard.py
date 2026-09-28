@@ -1,334 +1,185 @@
 """Self-contained HTML dashboard: data embedded as JSON, rendered client-side.
 
-No network access needed to open it; every value is inserted with textContent,
+The page works offline (opened as a file, it shows the last collection); served
+by `seedbox run`, it adds live qBittorrent activity, jobs, system metrics and
+the actions. Styles, script and artwork live in seedbox/web/ and are inlined
+here, so the page is still one file. Every value is inserted with textContent,
 never as HTML.
 """
 
+import base64
 import json
+import os
 
 from seedbox import __version__
 
-CSS = """
-:root{
-  --bg:#f6f6f4; --panel:#ffffff; --line:#dcdcd6; --text:#1d2023; --muted:#666c73;
-  --ok:#2f8a5b; --warn:#b7801b; --ko:#c0463a; --accent:#3f6d95; --fill:rgba(63,109,149,.14);
-  color-scheme:light;
-}
-@media (prefers-color-scheme:dark){
-  :root{
-    --bg:#16191c; --panel:#1d2125; --line:#2d3339; --text:#e7e5e0; --muted:#8e959c;
-    --ok:#4ea87a; --warn:#d9a441; --ko:#d4665a; --accent:#6f9cc4; --fill:rgba(111,156,196,.18);
-    color-scheme:dark;
-  }
-}
-*{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);
-  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
-  font-variant-numeric:tabular-nums}
-.wrap{max-width:1180px;margin:0 auto;padding:32px 16px 72px}
-h1{font-size:22px;font-weight:600;margin:0 0 4px}
-h2{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;margin:36px 0 12px}
-.sub,.muted{color:var(--muted);font-size:13px}
-.kpi{display:flex;align-items:baseline;gap:14px;margin:24px 0 6px}
-.kpi b{font-size:56px;font-weight:600;letter-spacing:-1px;line-height:1}
-.gauge{display:flex;height:20px;border-radius:3px;overflow:hidden;border:1px solid var(--line);margin:14px 0 8px}
-.legend{display:flex;flex-wrap:wrap;gap:18px;color:var(--muted);font-size:13px}
-.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:7px}
-.scroll{overflow-x:auto}
-table{width:100%;border-collapse:collapse;font-size:14px}
-th{text-align:left;font-weight:600;color:var(--muted);font-size:12px;padding:8px 10px;
-  border-bottom:1px solid var(--line);white-space:nowrap;user-select:none}
-th[data-sort]{cursor:pointer} th[data-sort]:hover{color:var(--text)}
-td{padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
-td.num,th.num{text-align:right;white-space:nowrap}
-tr:hover td{background:var(--panel)}
-.bar{height:8px;background:var(--line);border-radius:2px;overflow:hidden;min-width:80px}
-.bar i{display:block;height:100%;background:var(--accent)}
-.controls{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:0 0 12px}
-input,select,button{font:inherit;font-size:13px;background:var(--panel);color:var(--text);
-  border:1px solid var(--line);border-radius:4px;padding:6px 11px}
-input[type=search]{flex:1;min-width:180px}
-button{color:var(--muted);cursor:pointer}
-button[aria-pressed=true]{color:var(--text);border-color:var(--accent)}
-:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
-ul.warn{margin:0;padding-left:18px} ul.warn li{margin:2px 0}
-details summary{cursor:pointer;color:var(--muted);font-size:13px}
-.live{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;margin:0 0 10px}
-.live b{font-weight:600}
-.foot{color:var(--muted);font-size:12px;margin-top:36px;border-top:1px solid var(--line);padding-top:14px}
-@media(max-width:700px){.kpi b{font-size:44px} .opt{display:none}}
-"""
+WEB = os.path.join(os.path.dirname(__file__), "web")
 
-JS = r"""
-var D = JSON.parse(document.getElementById('data').textContent);
-var H = JSON.parse(document.getElementById('history').textContent);
-var COLOR = {seeded:'var(--ok)', incomplete:'var(--warn)', orphan:'var(--ko)'};
-var LABEL = {seeded:'seeded', incomplete:'incomplete', orphan:'on no tracker'};
-var GIB = Math.pow(1024,3), TIB = Math.pow(1024,4);
+NAV = [
+    ("overview", "Overview", "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"),
+    ("activity", "Activity", "M7 4v16M7 4L3 8M7 4l4 4M17 20V4M17 20l-4-4M17 20l4-4"),
+    ("duplicates", "Duplicates", "M8 8h12v12H8zM4 16V4h12"),
+    ("library", "Library", "M3 7h14v13H3zM7 3h14v13M8 11v5l4-2.5z"),
+    ("system", "System", "M3 12h4l2-5 4 10 2-5h6"),
+    ("logs-sec", "Logs", "M5 5h14M5 9.5h14M5 14h9M5 18.5h9"),
+]
+CHECK = '<svg class="icon check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>'
 
-function el(tag, attrs, kids){
-  var n = document.createElement(tag);
-  for (var k in (attrs||{})) {
-    if (k === 'text') n.textContent = attrs[k];
-    else if (k === 'style') n.style.cssText = attrs[k];
-    else n.setAttribute(k, attrs[k]);
-  }
-  (kids||[]).forEach(function(c){ if (c) n.appendChild(c); });
-  return n;
-}
-function $(id){ return document.getElementById(id); }
-function fix(v, d){ return Number(v).toFixed(d); }
-function names(keys){
-  var byKey = {}; D.trackers.forEach(function(t){ byKey[t.key] = t.name; });
-  return keys.map(function(k){ return byKey[k] || k; });
-}
 
-var S = D.summary, total = Math.max(S.entries, 1);
-$('sub').textContent = S.entries + ' entries · ' + fix(S.size/TIB,2) + ' TiB on disk · '
-  + fix(S.uploaded/TIB,2) + ' TiB uploaded · ' + S.torrents + ' torrents · generated '
-  + new Date(D.generated).toLocaleString();
-$('coverage').textContent = fix(S.coverage_pct, 0) + ' %';
-['seeded','incomplete','orphan'].forEach(function(k){
-  if (S[k]) $('gauge').appendChild(el('i', {style:'width:'+(S[k]/total*100)+'%;background:'+COLOR[k]}));
-  $('legend').appendChild(el('span', {}, [el('i',{'class':'dot',style:'background:'+COLOR[k]}),
-    document.createTextNode(S[k] + ' ' + LABEL[k])]));
-});
+def _asset(name):
+    with open(os.path.join(WEB, name), encoding="utf-8") as handle:
+        return handle.read()
 
-// Trackers
-var tb = $('trackers');
-D.trackers.forEach(function(t){
-  var pct = t.entries / total * 100, state, color;
-  if (!t.in_prowlarr) { state = 'not in Prowlarr'; color = 'var(--warn)'; }
-  else if (!t.enabled) { state = 'disabled'; color = 'var(--muted)'; }
-  else if (t.failing) { state = 'failing'; color = 'var(--ko)'; }
-  else if (!t.entries) { state = 'nothing seeded'; color = 'var(--warn)'; }
-  else { state = 'ok'; color = 'var(--ok)'; }
-  tb.appendChild(el('tr', {}, [
-    el('td', {}, [el('i',{'class':'dot',style:'background:'+color}), document.createTextNode(t.name)]),
-    el('td', {'class':'muted', text: state}),
-    el('td', {'class':'num', text: t.entries}),
-    el('td', {}, [el('div',{'class':'bar'},[el('i',{style:'width:'+pct+'%'})])]),
-    el('td', {'class':'num', text: fix(pct,0)+' %'}),
-    el('td', {'class':'num opt', text: fix(t.uploaded/TIB,2)}),
-    el('td', {'class':'num opt', text: t.in_prowlarr ? t.grabs : '—'})
-  ]));
-});
-if (!D.trackers.length) tb.appendChild(el('tr',{},[el('td',{colspan:7,'class':'muted',text:'No tracker found.'})]));
-if (!S.prowlarr) $('noprowlarr').hidden = false;
 
-// Warnings
-if (D.warnings.length) {
-  $('warnings-block').hidden = false;
-  D.warnings.forEach(function(w){ $('warnings').appendChild(el('li',{text:w})); });
-}
+def _nav():
+    links = []
+    for key, label, path in NAV:
+        active = ' class="active"' if key == "overview" else ""
+        links.append(
+            f'<a href="#{key}"{active}><span class="pill">'
+            f'<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="{path}"/></svg></span>{label}</a>'
+        )
+    return "\n  ".join(links)
 
-// History
-(function(){
-  var box = $('history-chart');
-  if (H.length < 2) { box.appendChild(el('p',{'class':'muted',text:'The curve appears from the second run.'})); return; }
-  var W = 980, h = 110, ns = 'http://www.w3.org/2000/svg';
-  var vals = H.map(function(r){ return parseFloat(r.coverage_pct) || 0; });
-  var step = W / (vals.length - 1);
-  var pts = vals.map(function(v,i){ return fix(i*step,1)+','+fix(h - v/100*(h-18) - 9,1); }).join(' ');
-  var svg = document.createElementNS(ns,'svg');
-  svg.setAttribute('viewBox','0 0 '+W+' '+h); svg.setAttribute('width','100%'); svg.setAttribute('height',h);
-  svg.setAttribute('preserveAspectRatio','none'); svg.setAttribute('role','img');
-  svg.setAttribute('aria-label','Coverage over time');
-  var area = document.createElementNS(ns,'polygon');
-  area.setAttribute('points','0,'+h+' '+pts+' '+W+','+h); area.setAttribute('fill','var(--fill)');
-  var line = document.createElementNS(ns,'polyline');
-  line.setAttribute('points',pts); line.setAttribute('fill','none'); line.setAttribute('stroke','var(--accent)');
-  line.setAttribute('stroke-width','2'); line.setAttribute('vector-effect','non-scaling-stroke');
-  svg.appendChild(area); svg.appendChild(line); box.appendChild(svg);
-  box.appendChild(el('div',{'class':'legend'},[el('span',{text:H[0].date.slice(0,10)}),
-    el('span',{style:'margin-left:auto',text:H[H.length-1].date.slice(0,10)+' · '+fix(vals[vals.length-1],1)+' %'})]));
-})();
 
-// Entries
-var status = 'all', missing = '', sortKey = 'size', desc = true;
-var sel = $('missing');
-D.trackers.filter(function(t){ return t.in_prowlarr ? t.enabled : true; }).forEach(function(t){
-  sel.appendChild(el('option',{value:t.key,text:'Missing on '+t.name}));
-});
-D.entries.forEach(function(e){ e._t = names(e.trackers).join(', '); e._k = (e.name+' '+e.category+' '+e._t).toLowerCase(); });
+def _range_chips():
+    options = [(6, "6 h"), (24, "24 h"), (72, "3 days"), (336, "14 days")]
+    return "".join(
+        f'<button class="chip" type="button" data-h="{h}" aria-pressed="{"true" if h == 24 else "false"}">{CHECK}{label}</button>'
+        for h, label in options
+    )
 
-function render(){
-  var q = $('q').value.toLowerCase();
-  var rows = D.entries.filter(function(e){
-    return (status === 'all' || e.status === status) && (!missing || e.trackers.indexOf(missing) < 0)
-      && (!q || e._k.indexOf(q) >= 0);
-  });
-  rows.sort(function(a,b){
-    var x = a[sortKey], y = b[sortKey];
-    if (sortKey === 'trackers') { x = a.trackers.length; y = b.trackers.length; }
-    if (x < y) return desc ? 1 : -1;
-    if (x > y) return desc ? -1 : 1;
-    return 0;
-  });
-  var body = $('entries'); body.textContent = '';
-  var frag = document.createDocumentFragment();
-  rows.forEach(function(e){
-    frag.appendChild(el('tr',{},[
-      el('td',{},[el('i',{'class':'dot',style:'background:'+COLOR[e.status],title:e.status}),document.createTextNode(e.name)]),
-      el('td',{'class':'muted opt',text:e.category}),
-      el('td',{'class':'opt',text:e._t || '—'}),
-      el('td',{'class':'num',text:fix(e.size/GIB,1)}),
-      el('td',{'class':'num',text:fix(e.uploaded/GIB,1)})
-    ]));
-  });
-  body.appendChild(frag);
-  $('count').textContent = rows.length + ' of ' + D.entries.length;
-  $('empty').hidden = rows.length > 0;
-}
-$('q').addEventListener('input', render);
-sel.addEventListener('change', function(){ missing = sel.value; render(); });
-Array.prototype.forEach.call(document.querySelectorAll('[data-status]'), function(b){
-  b.addEventListener('click', function(){
-    status = b.dataset.status;
-    Array.prototype.forEach.call(document.querySelectorAll('[data-status]'), function(x){
-      x.setAttribute('aria-pressed', x === b ? 'true' : 'false');
-    });
-    render();
-  });
-});
-Array.prototype.forEach.call(document.querySelectorAll('th[data-sort]'), function(th){
-  th.addEventListener('click', function(){
-    var k = th.dataset.sort; desc = (k === sortKey) ? !desc : true; sortKey = k; render();
-  });
-});
-render();
-
-// Torrents outside the library
-if (D.unmatched.length) {
-  $('unmatched-block').hidden = false;
-  $('unmatched-count').textContent = D.unmatched.length;
-  D.unmatched.forEach(function(u){
-    $('unmatched').appendChild(el('li',{},[document.createTextNode(u.name+' '),
-      el('span',{'class':'muted',text:u.path || 'unknown path'})]));
-  });
-}
-
-// qBittorrent activity (live): only when served by `seedbox run`
-(function(){
-  var btn = $('live-refresh'), out = $('live');
-  if (location.protocol === 'file:') {
-    btn.disabled = true;
-    out.appendChild(el('p',{'class':'muted',text:'Live status needs the page served by seedbox run.'}));
-    return;
-  }
-  var LV = {info:'var(--muted)', warn:'var(--warn)', ko:'var(--ko)'};
-  function size(n){ return n >= GIB ? fix(n/GIB,1)+' GiB' : fix(n/1048576,1)+' MiB'; }
-  function show(st){
-    out.textContent = '';
-    var io = st.io, wait = io.average_time_queue_ms;
-    var ioColor = wait >= 1000 ? 'var(--ko)' : io.queued_io_jobs ? 'var(--warn)' : 'var(--ok)';
-    out.appendChild(el('div',{'class':'live'},[
-      el('span',{},[el('i',{'class':'dot',style:'background:'+ioColor}),
-        document.createTextNode('disk queue '),el('b',{text:io.queued_io_jobs+' jobs · '+wait+' ms'})]),
-      el('span',{},[document.createTextNode('rechecks '),
-        el('b',{text:st.checking.count+' · '+size(st.checking.bytes)+' to read'})]),
-      el('span',{},[document.createTextNode('up '),el('b',{text:size(io.up_speed)+'/s'}),
-        document.createTextNode(' · down '),el('b',{text:size(io.dl_speed)+'/s'}),
-        document.createTextNode(' · '+io.peers+' peers')])
-    ]));
-    out.appendChild(el('p',{'class':'muted',text:'qBittorrent '+st.version+' · '+st.torrents+' torrents: '
-      + Object.keys(st.states).map(function(k){ return st.states[k]+' '+k; }).join(', ')
-      + ' · '+new Date(st.generated).toLocaleTimeString()}));
-    var rows = st.busy.map(function(b){
-      var c = (b.state === 'error' || b.state === 'missingFiles') ? 'var(--ko)' : 'var(--warn)';
-      return el('tr',{},[
-        el('td',{},[el('i',{'class':'dot',style:'background:'+c}),document.createTextNode(b.state)]),
-        el('td',{text:b.name}),
-        el('td',{'class':'muted opt',text:b.category}),
-        el('td',{'class':'num',text:size(b.size)}),
-        el('td',{'class':'num',text:fix(b.progress*100,1)+' %'})
-      ]);
-    });
-    if (!rows.length) rows = [el('tr',{},[el('td',{colspan:5,'class':'muted',text:'Nothing moving, checking or in error.'})])];
-    out.appendChild(el('div',{'class':'scroll'},[el('table',{},[
-      el('thead',{},[el('tr',{},[el('th',{text:'State'}),el('th',{text:'Torrent'}),el('th',{'class':'opt',text:'Category'}),
-        el('th',{'class':'num',text:'Size'}),el('th',{'class':'num',text:'Progress'})])]),
-      el('tbody',{},rows)])]));
-    if (st.events.length) {
-      out.appendChild(el('details',{},[el('summary',{text:st.events.length+' recent moves, removals and errors (log)'}),
-        el('ul',{'class':'warn'},st.events.slice().reverse().map(function(e){
-          return el('li',{},[el('span',{'class':'muted',text:new Date(e.time).toLocaleString()+' '}),
-            el('span',{style:'color:'+LV[e.level],text:e.message})]);
-        }))]));
-    }
-    out.appendChild(el('p',{'class':'muted',text:'Limits: '+Object.keys(st.settings).map(function(k){
-      return k+'='+st.settings[k]; }).join(', ')}));
-  }
-  function load(){
-    btn.disabled = true; btn.textContent = 'Loading…';
-    fetch('api/status',{cache:'no-store'}).then(function(r){
-      return r.json().then(function(j){ if (!r.ok) throw new Error(j.error || r.status); return j; });
-    }).then(show).catch(function(e){
-      out.textContent = '';
-      out.appendChild(el('p',{style:'color:var(--ko)',text:'qBittorrent status failed: '+e.message}));
-    }).then(function(){ btn.disabled = false; btn.textContent = 'Refresh'; });
-  }
-  btn.addEventListener('click', load);
-})();
-"""
 
 PAGE = """<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Seeding coverage</title><style>{css}</style></head><body>
-<div class="wrap">
-<h1>Seeding coverage</h1>
-<p class="sub" id="sub"></p>
+<title>Seedbox control plane</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,@favicon@">
+<style>@css@</style></head><body>
 
-<div class="kpi"><b id="coverage"></b><span class="muted">of the library is shared on at least one tracker</span></div>
-<div class="gauge" id="gauge"></div>
-<div class="legend" id="legend"></div>
+<nav class="rail" aria-label="Sections">
+  <div class="flag">@flag@</div>
+  @nav@
+</nav>
 
-<h2>qBittorrent activity</h2>
-<div class="controls"><button id="live-refresh">Refresh</button>
-<span class="muted">rechecks, moves and errors right now; removals only show in the log</span></div>
-<div id="live"></div>
+<header class="topbar">
+  <div class="crumbs"><span>Seedbox</span><span aria-hidden="true">›</span><b id="crumb">Overview</b></div>
+  <label class="search"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM15.5 15.5L20 20"/></svg>
+    <input id="search" type="search" placeholder="Search the library by name, folder or tracker" aria-label="Search the library"></label>
+  <div class="top-actions">
+    <span class="muted small opt" id="live-time"></span>
+    <button class="chip opt" id="auto" type="button" aria-pressed="false">@check@Auto refresh</button>
+    <button class="btn" id="live-refresh" type="button"><svg class="icon sm" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg><span class="label">Refresh</span></button>
+    <button class="btn filled" id="collect" type="button"><svg class="icon sm" viewBox="0 0 24 24"><path d="M12 4v10M8 10l4 4 4-4M5 18h14"/></svg><span class="label">Collect now</span></button>
+  </div>
+</header>
 
-<h2>Trackers</h2>
-<p class="muted" id="noprowlarr" hidden>Prowlarr not configured: only trackers seen in qBittorrent are listed.</p>
-<div class="scroll"><table>
-<thead><tr><th>Tracker</th><th>State</th><th class="num">Entries</th><th>Share of library</th><th class="num">%</th>
-<th class="num opt">Uploaded TiB</th><th class="num opt">Grabs</th></tr></thead>
-<tbody id="trackers"></tbody></table></div>
-
-<div id="warnings-block" hidden><h2>Warnings</h2><ul class="warn" id="warnings"></ul></div>
-
-<h2>Coverage over time</h2>
-<div id="history-chart"></div>
-
-<h2>Library</h2>
-<div class="controls">
-  <input type="search" id="q" placeholder="Filter by name, category or tracker" aria-label="Filter">
-  <button data-status="all" aria-pressed="true">All</button>
-  <button data-status="seeded" aria-pressed="false">Seeded</button>
-  <button data-status="incomplete" aria-pressed="false">Incomplete</button>
-  <button data-status="orphan" aria-pressed="false">Orphans</button>
-  <select id="missing" aria-label="Missing on tracker"><option value="">Any tracker</option></select>
-  <span class="muted" id="count"></span>
+<main>
+<div class="hero">
+  @logo@
+  <div><h1>Seedbox control plane</h1><p id="hero-sub"></p><div class="meta" id="hero-meta"></div></div>
 </div>
-<div class="scroll"><table>
-<thead><tr><th data-sort="name">Name</th><th class="opt" data-sort="category">Category</th>
-<th class="opt" data-sort="trackers">Trackers</th><th class="num" data-sort="size">Size GiB</th>
-<th class="num" data-sort="uploaded">Uploaded GiB</th></tr></thead>
-<tbody id="entries"></tbody></table></div>
-<p class="muted" id="empty" hidden>No entry matches.</p>
 
-<div id="unmatched-block" hidden><h2>Torrents outside the library</h2>
-<details><summary><span id="unmatched-count"></span> torrents match no library entry
-(downloading, deleted content, or stored outside the configured roots)</summary>
-<ul class="muted" id="unmatched"></ul></details></div>
+<section id="overview">
+  <div class="grid">
+    <div class="card kpi c3" id="k-coverage"></div>
+    <div class="card kpi c3" id="k-library"></div>
+    <div class="card kpi c3" id="k-uploaded"></div>
+    <div class="card kpi c3" id="k-problems"></div>
+    <div class="card kpi c3" id="k-dups"></div>
+    <div class="card kpi c3" id="k-queue" data-live></div>
+    <div class="card kpi c3" id="k-rechecks" data-live></div>
+    <div class="card kpi c3" id="k-volume" data-live></div>
 
-<p class="foot">Matched by inode: content hardlinked by cross-seed counts as seeded wherever the
-torrent points. seedbox {version}</p>
-</div>
-<script type="application/json" id="data">{data}</script>
-<script type="application/json" id="history">{history}</script>
-<script>{js}</script>
+    <div class="card c5"><div class="card-head"><h3>Library by seeding status</h3></div><div class="chart" id="c-status"></div></div>
+    <div class="card c7"><div class="card-head"><h3>Coverage by tracker</h3><span class="sub muted small">share of the library each tracker seeds</span></div><div class="chart" id="c-trackers"></div></div>
+    <div class="card c8"><div class="card-head"><h3>Seeded entries over time</h3><span class="sub muted small">rebuilt from torrent add dates</span></div><div class="chart" id="c-timeline"></div></div>
+    <div class="card c4"><div class="card-head"><h3>Torrent states</h3></div><div class="chart" id="c-states"></div></div>
+    <div class="card c8"><div class="card-head"><h3>Torrents added per day</h3><span class="sub muted small">last 60 days</span></div><div class="chart" id="c-added"></div></div>
+    <div class="card c4"><div class="card-head"><h3>Coverage at each collection</h3></div><div class="chart" id="c-history"></div></div>
+  </div>
+</section>
+
+<section id="activity">
+  <div class="section-head"><h2>qBittorrent activity</h2><span class="muted">live: rechecks, moves, removals and errors</span></div>
+  <div class="grid">
+    <div class="card kpi c6" id="a-io" data-live></div>
+    <div class="card kpi c6" id="a-transfer" data-live></div>
+    <div class="card c12" data-live><div class="card-head"><h3>Busy torrents</h3><span class="sub muted small">moving, checking, queued, stopped or in error</span></div><div id="a-busy"></div></div>
+    <div class="card c12" data-live><div class="card-head"><h3>Jobs sent from the dashboard</h3><span class="sub muted small">status read back from qBittorrent</span></div><div id="a-jobs"></div></div>
+  </div>
+</section>
+
+<section id="duplicates">
+  <div class="section-head"><h2>Duplicates</h2><span class="muted">same file on the same tracker, several versions of a work, episodes twice</span></div>
+  <div class="grid">
+    <div class="card kpi c4" id="d-same"></div>
+    <div class="card kpi c4" id="d-versions"></div>
+    <div class="card kpi c4" id="d-episodes"></div>
+    <div class="card c12" id="dups"></div>
+  </div>
+</section>
+
+<section id="library">
+  <div class="section-head"><h2>Library</h2><span class="muted" id="lib-count"></span></div>
+  <div class="card">
+    <div class="chips" id="lib-chips" style="margin-bottom:16px"></div>
+    <div class="chips" style="margin-bottom:8px">
+      <select class="select" id="lib-folder" aria-label="Folder"><option value="">All folders</option></select>
+      <select class="select" id="lib-missing" aria-label="Missing on tracker"><option value="">Any tracker</option></select>
+    </div>
+    <div class="table-wrap"><table id="lib-table">
+      <thead><tr><th style="width:48px"><input type="checkbox" id="lib-all" aria-label="Select all shown"></th>
+      <th data-sort="coverage">Status</th><th data-sort="name">Name</th><th class="opt" data-sort="trackers">Trackers</th>
+      <th class="num" data-sort="size">Size</th><th class="num opt" data-sort="uploaded">Uploaded</th><th class="num" data-sort="issues">Issues</th></tr></thead>
+      <tbody id="lib-body"></tbody></table></div>
+    <p class="empty" id="lib-empty" hidden>No entry matches.</p>
+    <div class="more" id="lib-more"></div>
+  </div>
+  <div class="batch" id="batch">
+    <b id="batch-count"></b>
+    <span class="muted">Move with qBittorrent to</span>
+    <select class="select" id="batch-dest" aria-label="Destination folder"></select>
+    <button class="btn filled sm" id="batch-move" type="button">Move</button>
+    <button class="btn sm" id="batch-recheck" type="button">Recheck</button>
+    <button class="btn sm" id="batch-start" type="button">Start</button>
+    <button class="btn sm" id="batch-clear" type="button">Clear selection</button>
+  </div>
+</section>
+
+<section id="outside-sec">
+  <div class="section-head"><h2>Torrents outside the library</h2><span class="muted">matched to no library entry, with the reason</span></div>
+  <div class="card" id="outside"></div>
+</section>
+
+<section id="system">
+  <div class="section-head"><h2>System</h2><span class="muted">host and qBittorrent, sampled by seedbox</span>
+    <div class="chips range" id="m-range">@range@</div></div>
+  <div class="grid">
+    <div class="card c6" data-live><div class="card-head"><h3>CPU and IO wait</h3></div><div class="chart" id="m-cpu"></div></div>
+    <div class="card c6" data-live><div class="card-head"><h3>Busiest disk</h3><span class="sub muted small">time spent doing IO</span></div><div class="chart" id="m-disk"></div></div>
+    <div class="card c6" data-live><div class="card-head"><h3>Memory used</h3></div><div class="chart" id="m-mem"></div></div>
+    <div class="card c6" data-live><div class="card-head"><h3>qBittorrent transfer</h3></div><div class="chart" id="m-net"></div></div>
+  </div>
+</section>
+
+<section id="logs-sec">
+  <div class="section-head"><h2>Logs</h2><span class="muted">qBittorrent moves, removals and errors</span></div>
+  <div class="grid">
+    <div class="card c12" data-live id="logs"></div>
+    <div class="card c12"><div class="card-head"><h3>Collection warnings</h3></div><div id="warnings"></div></div>
+  </div>
+  <p class="muted small" style="margin-top:32px">Matched by inode: content hardlinked by cross-seed counts as seeded wherever the
+  torrent points. seedbox @version@</p>
+</section>
+</main>
+
+<div class="tooltip" id="tooltip" role="tooltip"></div>
+<div class="toast" id="toast" role="status"></div>
+<dialog id="dialog"></dialog>
+<script type="application/json" id="data">@data@</script>
+<script type="application/json" id="history">@history@</script>
+<script>@js@</script>
 </body></html>
 """
 
@@ -341,4 +192,23 @@ def _embed(value):
 def render(snap, history):
     data = {k: v for k, v in snap.items() if k != "entries"}
     data["entries"] = [{k: v for k, v in e.items() if k != "path"} for e in snap["entries"]]
-    return PAGE.format(css=CSS, js=JS, data=_embed(data), history=_embed(history), version=__version__)
+    flag = _asset("flag.svg").strip()
+    parts = {
+        "favicon": base64.b64encode(flag.encode()).decode(),
+        "css": _asset("app.css"),
+        "flag": flag,
+        "nav": _nav(),
+        "check": CHECK,
+        "logo": _asset("logo.svg").strip(),
+        "range": _range_chips(),
+        "version": __version__,
+        "data": _embed(data),
+        "history": _embed(history),
+        "js": _asset("app.js"),
+    }
+    # One pass over the template: inserted content is never scanned again.
+    pieces = PAGE.split("@")
+    out = []
+    for i, piece in enumerate(pieces):
+        out.append(parts[piece] if i % 2 and piece in parts else (("@" + piece) if i % 2 else piece))
+    return "".join(out)
