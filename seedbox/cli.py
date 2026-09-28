@@ -173,7 +173,8 @@ class _Service:
 
     def trigger(self):
         if not self.state["running"]:
-            self.state["reason"] = "requested from the dashboard"
+            # Running from now on: a poll right after must not see "done".
+            self.state.update(running=True, reason="requested from the dashboard", error=None)
             self.wake.set()
         return self.collect_state()
 

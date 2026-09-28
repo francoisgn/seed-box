@@ -216,6 +216,7 @@ def fingerprint(cfg):
         "roots": cfg.roots, "max_depth": cfg.max_depth, "skip_dirs": cfg.skip_dirs, "media_ext": cfg.media_ext,
         "qbt_url": cfg.qbt_url, "qbt_username": cfg.qbt_username, "path_map": cfg.path_map,
         "prowlarr_url": cfg.prowlarr_url, "tracker_aliases": cfg.tracker_aliases, "link_dirs": cfg.link_dirs,
+        "merge": [cfg.merge_from, cfg.merge_into], "cross_seed_db": cfg.cross_seed_db,
     }  # fmt: skip
     return hashlib.sha256(json.dumps(relevant, sort_keys=True).encode()).hexdigest()[:12]
 

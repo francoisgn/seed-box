@@ -378,6 +378,11 @@ class HttpApi(unittest.TestCase):
         )
         self.assertEqual((status, body["error"]), (403, "cross-origin request refused"))
 
+    def test_collect_trigger_is_running_at_once(self):
+        with mock.patch.object(cli._Service, "collect"):
+            status, body = self.post("/api/collect", {"X-Seedbox": "1", "Content-Type": "application/json"})
+        self.assertEqual((status, body["running"]), (202, True))
+
     def test_collect_state(self):
         conn = http.client.HTTPConnection("127.0.0.1", self.server.server_port)
         conn.request("GET", "/api/collect")

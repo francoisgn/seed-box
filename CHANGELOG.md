@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.3
+
+- Collect now: reported as running right away, so the page does not reload
+  before the collection starts.
+- Regroup and cross-seed settings are part of the config fingerprint: changing
+  them triggers a collection at the next start.
+
 ## 0.9.2
 
 - cross-seed search history (its database, read-only through `CROSS_SEED_DIR`):
