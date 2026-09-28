@@ -66,6 +66,8 @@ a { color: var(--primary); }
 }
 .crumbs { display: flex; align-items: center; gap: 8px; color: var(--t2); white-space: nowrap; }
 .crumbs b { color: var(--t1); font-weight: 500; }
+.crumbs .ver { border: 1px solid var(--line); border-radius: 6px; padding: 0 6px; font-size: 12px; color: var(--t3); }
+.crumbs .ver.stale { color: var(--warn); border-color: var(--warn); cursor: pointer; }
 .search {
   flex: 1; max-width: 560px; display: flex; align-items: center; gap: 8px;
   background: var(--s1); border-radius: 8px; padding: 0 16px; height: 48px; color: var(--t2);

@@ -350,6 +350,10 @@ def cmd_run(cfg):
         threading.Thread(target=metrics.loop, args=(cfg, client, ui), daemon=True).start()
     needed, why = startup_collection(cfg)
     ui.info(f"startup collection: {'yes' if needed else 'skipped'} ({why})")
+    # The page is written at each collection: without one, the previous version's
+    # page would stay served after an upgrade.
+    if not needed and report.rerender(cfg):
+        ui.ok(f"dashboard page rebuilt for seedbox {__version__}")
     service.loop(needed, why)
 
 

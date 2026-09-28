@@ -8,6 +8,7 @@ import unittest
 from datetime import datetime
 from unittest import mock
 
+import seedbox
 from seedbox import collect, config, dashboard, library, qbittorrent, report, schedule, status, trackers, ui
 from seedbox.api import ApiError
 
@@ -356,6 +357,12 @@ class Pipeline(unittest.TestCase):
         self.assertNotIn("/secret/path", page)
         with open(os.path.join(out, "snapshot.json"), encoding="utf-8") as handle:
             self.assertEqual(json.load(handle)["entries"][0]["path"], "/secret/path")
+        # Rebuilt without collecting (after an upgrade): same history, current version in the header.
+        os.remove(os.path.join(out, "index.html"))
+        self.assertTrue(report.rerender(self.cfg))
+        with open(os.path.join(out, "index.html"), encoding="utf-8") as handle:
+            self.assertIn(f'id="page-version" title="Version of this page">v{seedbox.__version__}<', handle.read())
+        self.assertEqual(len(report.read_history(os.path.join(out, "history.csv"), ",")), 2)
 
     def test_dashboard_embed_roundtrip(self):
         value = {"x": "</script><!--"}

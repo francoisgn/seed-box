@@ -767,11 +767,20 @@ function paged(key, rows, first, step, pages, rerender) {
   }
   return {rows: rows.slice(st.page * step, (st.page + 1) * step), controls: bar};
 }
+// The server runs another version than this page (upgrade since it was opened): offer a reload.
+function checkVersion(running) {
+  var tag = $('page-version'), mine = tag.textContent.replace(/^v/, '');
+  if (!running || running === mine) return;
+  tag.classList.add('stale');
+  tag.textContent = 'v' + mine + ' → v' + running + ': reload';
+  tag.title = 'seedbox ' + running + ' is running; this page was built by ' + mine + '. Click to reload.';
+  tag.onclick = function () { location.reload(); };
+}
 function refreshLive() {
   if (!LIVE) { renderQueueTiles(); renderActivity(); renderErrors(); renderLogs(); return Promise.resolve(); }
   $('live-refresh').disabled = true;
   document.querySelectorAll('[data-live]').forEach(function (n) { n.classList.add('stale'); });
-  return api('api/status').then(function (st) { L = st; }).catch(function (e) {
+  return api('api/status').then(function (st) { L = st; checkVersion(st.seedbox); }).catch(function (e) {
     toast('qBittorrent status failed: ' + e.message);
   }).then(function () {
     document.querySelectorAll('[data-live]').forEach(function (n) { n.classList.remove('stale'); });

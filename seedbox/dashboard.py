@@ -73,7 +73,7 @@ PAGE = """<!DOCTYPE html>
 </nav>
 
 <header class="topbar">
-  <div class="crumbs"><span>Seedbox</span><span aria-hidden="true">›</span><b id="crumb">Warnings</b></div>
+  <div class="crumbs"><span>Seedbox</span><span class="ver" id="page-version" title="Version of this page">v@version@</span><span aria-hidden="true">›</span><b id="crumb">Warnings</b></div>
   <div class="top-actions">
     <span class="muted small opt" id="live-time"></span>
     <button class="chip opt" id="auto" type="button" aria-pressed="false" data-period="@autos@" title="Refresh live data and system metrics every @auto@">@check@Auto refresh · @auto@</button>

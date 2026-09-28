@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.1
+
+- The dashboard page is rebuilt when `seedbox run` starts, from the last
+  snapshot: after an upgrade without a new collection, the previous version's
+  page stayed served (1.1.x and 1.2.0 features only showed after a collection).
+- Version in the top bar; when the running seedbox differs from the page's
+  (upgrade while the page is open), it turns into a reload link.
+
 ## 1.2.0
 
 - Torrents outside the library: a Remove button per torrent; for one that

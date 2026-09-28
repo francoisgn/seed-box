@@ -9,7 +9,7 @@ import os
 import re
 from datetime import UTC, datetime
 
-from seedbox import actions
+from seedbox import __version__, actions
 
 # States that mean work (or trouble) rather than plain seeding/downloading.
 BUSY = (
@@ -196,6 +196,7 @@ def gather(client, events=30, cfg=None, errors_kept=30):
     return {
         "generated": datetime.now(UTC).isoformat(timespec="seconds"),
         "version": client.version(),
+        "seedbox": __version__,
         "torrents": len(torrents),
         "states": dict(sorted(states.items(), key=lambda kv: -kv[1])),
         "busy": busy,
