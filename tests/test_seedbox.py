@@ -390,6 +390,26 @@ class FakeQbtStatus:
         ]
 
 
+class Unreadable(unittest.TestCase):
+    def test_mode_000_once_per_inode(self):
+        from seedbox import cli
+
+        with tempfile.TemporaryDirectory() as tmp:
+            lib, links = os.path.join(tmp, "films"), os.path.join(tmp, ".cross-seed")
+            os.makedirs(lib)
+            os.makedirs(links)
+            for name in ("Locked.mkv", "Fine.mkv"):
+                with open(os.path.join(lib, name), "w") as f:
+                    f.write("x")
+            os.link(os.path.join(lib, "Locked.mkv"), os.path.join(links, "Locked.mkv"))
+            os.chmod(os.path.join(lib, "Locked.mkv"), 0)
+            try:
+                # A hardlink is the same file: reported once.
+                self.assertEqual(cli.unreadable_files([lib, links]), [os.path.join(lib, "Locked.mkv")])
+            finally:
+                os.chmod(os.path.join(lib, "Locked.mkv"), 0o644)
+
+
 class Status(unittest.TestCase):
     def test_gather(self):
         st = status.gather(FakeQbtStatus())

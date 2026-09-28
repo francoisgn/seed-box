@@ -6,6 +6,7 @@ import http.server
 import json
 import os
 import signal
+import stat
 import sys
 import threading
 from datetime import datetime
@@ -34,6 +35,31 @@ def cmd_collect(cfg):
     return 0
 
 
+SKIP_DIRS = ("@eaDir", "#recycle", "#snapshot")
+
+
+def unreadable_files(dirs):
+    """Files with no read bit at all (mode 000 and the like), one path per inode.
+
+    The mode, not os.access: seedbox and qBittorrent may run as different users."""
+    seen, out = set(), []
+    for top in dirs:
+        for root, subdirs, files in os.walk(top):
+            subdirs[:] = sorted(d for d in subdirs if d not in SKIP_DIRS)
+            for name in sorted(files):
+                path = os.path.join(root, name)
+                try:
+                    st = os.lstat(path)
+                except OSError:
+                    continue
+                if (st.st_dev, st.st_ino) in seen or not stat.S_ISREG(st.st_mode):
+                    continue
+                seen.add((st.st_dev, st.st_ino))
+                if not st.st_mode & 0o444:
+                    out.append(path)
+    return out
+
+
 def cmd_check(cfg):
     """Check each source separately, to validate a deployment."""
     rc = 0
@@ -50,6 +76,18 @@ def cmd_check(cfg):
             rc = 1
     for prefix, target in cfg.path_map.items():
         (ui.ok if os.path.isdir(target) else ui.warn)(f"path map {prefix} -> {target}")
+    with ui.Spinner("Looking for unreadable files"):
+        bad = unreadable_files(list(cfg.roots) + list(cfg.path_map.values()))
+    if bad:
+        # qBittorrent cannot seed them: torrents look fine (stalledUP) until a peer asks.
+        ui.ko(f"{len(bad)} file(s) nobody can read (chmod a+r to fix):")
+        for path in bad[:20]:
+            ui.ko(f"  {path}")
+        if len(bad) > 20:
+            ui.ko(f"  ... and {len(bad) - 20} more")
+        rc = 1
+    else:
+        ui.ok("media files readable")
     try:
         client = QbtClient(cfg.qbt_url, cfg.qbt_username, cfg.qbt_password)
         ui.ok(f"qBittorrent {client.version()} at {cfg.qbt_url}, {len(client.torrents())} torrents")

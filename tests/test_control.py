@@ -255,6 +255,8 @@ class CrossSeed(unittest.TestCase):
             touch(os.path.join(self.films, "archives", name))
         touch(os.path.join(self.films, "incoming", "New.2024.mkv"))
         touch(os.path.join(self.films, "incoming", "New.2024.nfo"), 1)
+        for name in ("Kingsman.2014.mkv", "Kingsman.2017.mkv"):
+            touch(os.path.join(self.films, "saga", "Kingsman", name))
         self.db = os.path.join(t, "cross-seed.db")
         db = sqlite3.connect(self.db)
         db.executescript(
@@ -276,7 +278,8 @@ class CrossSeed(unittest.TestCase):
         db.commit()
         db.close()
         self.cfg = load_cfg([self.films], os.path.join(t, "out"), path_map={"/video": self.media})
-        self.cfg.merge_from, self.cfg.merge_into = ["films/archives", "films/incoming"], "films/films"
+        self.cfg.merge_from = ["films/archives", "films/incoming", "films/saga"]
+        self.cfg.merge_into = "films/films"
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -311,6 +314,8 @@ class CrossSeed(unittest.TestCase):
         self.assertIn('mv -n -- "films/incoming/New.2024.nfo" "films/films/"', plan["script"])
         self.assertIn('mv -n -- "films/archives/Other.2018.mkv" "films/films/"', plan["script"])
         self.assertNotIn("Split", plan["script"])
+        # A saga sub-folder goes flat into the target.
+        self.assertIn('mv -n -- "films/saga/Kingsman/Kingsman.2014.mkv" "films/films/"', plan["script"])
         # The new folder does not exist yet: qBittorrent creates it.
         self.cfg.actions = True
         qbt = FakeQbt([{"hash": A, "name": "Split", "save_path": "/video/films/archives"}], {})

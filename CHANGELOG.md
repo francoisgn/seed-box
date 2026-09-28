@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.9.8
+
+- `seedbox check` flags media files nobody can read (mode 000 and the like),
+  once per inode: qBittorrent shows their torrents as seeding until a peer
+  asks, then fails with `file_open`.
+- Regroup plan takes sub-folders of `merge_from` too (`films/saga/Hannibal/…`),
+  flat into `merge_into`.
+- Dashboard content centred beside the section rail on wide screens.
+
 ## 0.9.7
 
 - "Disk queue" becomes "qBittorrent disk I/O": block reads and writes waiting

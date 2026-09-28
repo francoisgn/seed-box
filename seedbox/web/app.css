@@ -105,7 +105,8 @@ a { color: var(--primary); }
 }
 
 /* Layout */
-main { margin-left: 88px; padding: 32px; max-width: 1680px; }
+/* Rail on the left, content centred in the rest of the width. */
+main { margin-left: max(88px, calc(88px + (100% - 88px - 1680px) / 2)); padding: 32px; max-width: 1680px; }
 section { margin-bottom: 48px; }
 .section-head { display: flex; align-items: center; gap: 16px; margin-bottom: 24px; flex-wrap: wrap; }
 h2 { font-size: 20px; line-height: 28px; font-weight: 500; margin: 0; }

@@ -453,7 +453,8 @@ def merge_plan(cfg, entries, records):
     target = os.path.join(base, cfg.merge_into)
     torrents, files = [], []
     for i, entry in enumerate(entries):
-        if entry.folder not in cfg.merge_from:
+        # Sub-folders too: films/saga/Hannibal/… goes flat into merge_into.
+        if not any(entry.folder == f or entry.folder.startswith(f + "/") for f in cfg.merge_from):
             continue
         main = [records[t]["hash"] for t in entry.torrents if not records[t]["link"]]
         if main:
