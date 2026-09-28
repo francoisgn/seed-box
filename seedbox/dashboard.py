@@ -114,10 +114,11 @@ PAGE = """<!DOCTYPE html>
 </section>
 
 <section id="activity">
-  <div class="section-head"><h2>qBittorrent activity</h2><span class="muted">live: rechecks, moves, removals and errors</span></div>
+  <div class="section-head"><h2>qBittorrent activity</h2><span class="muted">live: disk I/O, errors, rechecks, moves and removals</span></div>
   <div class="grid">
     <div class="card kpi c6" id="a-io" data-live></div>
     <div class="card kpi c6" id="a-transfer" data-live></div>
+    <div class="card c12" data-live><div class="card-head"><h3>Latest qBittorrent errors</h3><span class="sub muted small">warnings and errors from its log, newest first</span></div><div id="a-errors"></div></div>
     <div class="card c12" data-live><div class="card-head"><h3>Busy torrents</h3><span class="sub muted small">moving, checking, queued, stopped or in error</span></div><div id="a-busy"></div></div>
     <div class="card c12" data-live><div class="card-head"><h3>Jobs sent from the dashboard</h3><span class="sub muted small">status read back from qBittorrent</span></div><div id="a-jobs"></div></div>
   </div>

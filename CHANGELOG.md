@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.7
+
+- "Disk queue" becomes "qBittorrent disk I/O": block reads and writes waiting
+  inside qBittorrent, not torrents. New list of the torrents using the disk
+  (move, running recheck, downloads, uploads with their speed).
+- "Queued jobs" becomes "Queued moves & removals"; rechecks pending split into
+  running and waiting their turn.
+- Latest qBittorrent errors: warnings and errors from its log on their own
+  card, no longer pushed out by bursts of moves.
+- Torrents deleted by their tracker also caught on HTTP 404, unless the whole
+  tracker answers 404 (announce URL or passkey changed). One button removes
+  them all from the "Torrents in error" tile.
+- `seedbox status` shows the same: disk I/O sources, running/waiting rechecks,
+  latest errors.
+
 ## 0.9.6
 
 - Upload opportunity split: "absent: upload it" (absent from a tracker

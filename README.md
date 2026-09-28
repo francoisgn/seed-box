@@ -77,7 +77,8 @@ torrents whose content no other torrent uses.
 Served by `seedbox run`, the dashboard also shows:
 
 - **qBittorrent activity**: queued jobs (moves, removals) with their progress,
-  rechecks pending and bytes left to read, disk queue, busy torrents, log;
+  rechecks pending (running, waiting) and bytes left to read, disk I/O queue
+  and the torrents behind it, latest errors, busy torrents, log;
 - **system**: CPU and IO wait, busiest disk, memory, transfer, volume usage,
   sampled every 5 minutes from `/proc` (host-wide in a container) and one light
   qBittorrent call, kept 14 days in `metrics.jsonl`;

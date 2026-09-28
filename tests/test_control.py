@@ -331,6 +331,16 @@ class CrossSeed(unittest.TestCase):
         dns = collect._torrent_record(self.cfg, torrent, keys, [], [{"tracker": "x", "msg": "Host not found"}])
         self.assertEqual([i["code"] for i in dns["issues"]], ["tracker_error"])
 
+        # 404: deleted while the tracker works for other torrents...
+        gone = collect._torrent_record(self.cfg, torrent, keys, [], [{"tracker": "alpha.example", "msg": "Not Found"}])
+        ok = collect._torrent_record(self.cfg, dict(torrent, hash=B), keys, [], [])
+        collect._whole_tracker_404([gone, ok])
+        self.assertEqual([i["code"] for i in gone["issues"]], ["unregistered"])
+        # ...but a tracker answering 404 for all of them has moved: nothing to remove.
+        gone = collect._torrent_record(self.cfg, torrent, keys, [], [{"tracker": "alpha.example", "msg": "HTTP 404"}])
+        collect._whole_tracker_404([gone])
+        self.assertEqual([(i["code"], i["fixes"]) for i in gone["issues"]], [("tracker_error", [])])
+
 
 class Categories(unittest.TestCase):
     def test_check_and_actions(self):

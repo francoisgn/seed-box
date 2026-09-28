@@ -34,6 +34,10 @@ UNREGISTERED = re.compile(
     r"(?i)unregistered|not registered|torrent (?:not found|does not exist|not exist|(?:has been )?(?:deleted|removed))"
     r"|info_?hash not found|trumped|\bdupe\b|nuked"
 )
+# HTTP 404 on the announce: the torrent is gone, unless the whole tracker answers
+# that way (announce URL or passkey changed); correlate() tells the two apart.
+# Not "Host not found": that is DNS.
+NOT_FOUND = re.compile(r"(?i)\b404\b|^not found\.?$")
 TRACKER_NOT_WORKING = 4
 
 
@@ -142,13 +146,16 @@ def _torrent_record(cfg, torrent, keys, files, tracker_errors=()):
     if state in ("error", "missingFiles"):
         issues.append({"code": state, "text": f"qBittorrent reports {state}", "fixes": ["recheck"]})
     for err in tracker_errors:
-        if UNREGISTERED.search(err["msg"]):
+        not_found = bool(NOT_FOUND.search(err["msg"]))
+        if not_found or UNREGISTERED.search(err["msg"]):
             issues.append(
                 {
                     "code": "unregistered",
                     "text": f"{err['tracker']} deleted this torrent ({err['msg']}): remove it; the content is "
                     "searched again later, or re-add it by hand",
                     "fixes": ["remove"],
+                    "tracker": err["tracker"],
+                    "not_found": not_found,
                 }
             )
         else:
@@ -250,7 +257,23 @@ def correlate(cfg, client, entries, inode_index, progress=lambda msg: None):
             for key in keys:
                 if key not in entry.trackers:
                     entry.trackers.append(key)
+    _whole_tracker_404(records)
     return records, unmatched
+
+
+def _whole_tracker_404(records):
+    """A 404 means a deleted torrent only if the tracker still works for others."""
+    working = {
+        r["tracker"] for r in records if not any(i["code"] in ("unregistered", "tracker_error") for i in r["issues"])
+    }
+    for r in records:
+        for i in r["issues"]:
+            if i.get("not_found") and i["tracker"] not in working:
+                i.update(
+                    code="tracker_error",
+                    text=f"{i['tracker']} answers 404 for every torrent: announce URL or passkey changed?",
+                    fixes=[],
+                )
 
 
 def tracker_table(entries, indexers):

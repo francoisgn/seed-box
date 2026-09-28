@@ -369,6 +369,7 @@ class FakeQbtStatus:
     def torrents(self):
         return [
             {"state": "stalledUP", "name": "seeding", "size": 10, "progress": 1},
+            {"state": "uploading", "name": "upload", "size": 10, "progress": 1, "upspeed": 2048},
             {"state": "checkingDL", "name": "queued check", "size": 100, "progress": 0, "added_on": 2},
             {"state": "checkingDL", "name": "running check", "size": 100, "progress": 0.75, "added_on": 1},
             {"state": "moving", "name": "move", "size": 5, "progress": 1},
@@ -392,11 +393,18 @@ class FakeQbtStatus:
 class Status(unittest.TestCase):
     def test_gather(self):
         st = status.gather(FakeQbtStatus())
-        self.assertEqual(st["torrents"], 5)
+        self.assertEqual(st["torrents"], 6)
         self.assertEqual(st["states"]["checkingDL"], 2)
         # Moves first, then checks (running one first), then errors; plain seeding left out.
         self.assertEqual([b["name"] for b in st["busy"]], ["move", "running check", "queued check", "broken"])
-        self.assertEqual(st["checking"], {"count": 2, "bytes": 125})
+        self.assertEqual(st["checking"], {"count": 2, "bytes": 125, "running": 1})
+        # Who hits the disk: a check waiting its turn reads nothing yet.
+        self.assertEqual(
+            [(s["why"], s["name"]) for s in st["io_sources"]],
+            [("move", "move"), ("recheck", "running check"), ("upload", "upload")],
+        )
+        # Errors kept apart from moves and removals.
+        self.assertEqual([e["message"] for e in st["errors"]], ["File error alert. Torrent: y"])
         self.assertEqual(st["io"]["queued_io_jobs"], 14)
         self.assertEqual(st["settings"], {"max_active_uploads": 20, "disk_io_type": 2})
         self.assertEqual([e["level"] for e in st["events"]], ["info", "warn"])

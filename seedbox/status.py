@@ -1,4 +1,4 @@
-"""What qBittorrent is busy with right now: rechecks, moves, errors, disk queue.
+"""What qBittorrent is busy with right now: rechecks, moves, errors, disk I/O queue.
 
 Read-only snapshot for `seedbox status` and the dashboard's live panel. Deletions
 have no queue in libtorrent: they only show up afterwards, in the log.
@@ -86,7 +86,7 @@ def log_removals(log, limit=50):
     return out[-limit:]
 
 
-def gather(client, events=30, cfg=None):
+def gather(client, events=30, cfg=None, errors_kept=20):
     """Snapshot from a QbtClient: states, busy torrents, disk queue, recent events, jobs."""
     torrents = client.torrents()
     server = (client.maindata() or {}).get("server_state", {})
@@ -112,6 +112,33 @@ def gather(client, events=30, cfg=None):
         key=lambda b: (BUSY.index(b["state"]), -b["progress"], b["added_on"]),
     )
     checking = [b for b in busy if b["state"] in CHECKING]
+    # The disk queue counts block reads/writes, not torrents: list who issues them.
+    io_sources = sorted(
+        (
+            {
+                "name": t.get("name", ""),
+                "state": t.get("state", ""),
+                "why": "move"
+                if t.get("state") == "moving"
+                else "recheck"
+                if t.get("state") in CHECKING
+                else "download"
+                if t.get("dlspeed", 0)
+                else "upload",
+                "up": t.get("upspeed", 0),
+                "dl": t.get("dlspeed", 0),
+                "size": t.get("size", 0),
+                "progress": t.get("progress", 0),
+            }
+            for t in torrents
+            if t.get("state") == "moving"
+            # A check waiting its turn reads nothing yet.
+            or (t.get("state") in CHECKING and t.get("progress", 0) > 0)
+            or t.get("upspeed", 0)
+            or t.get("dlspeed", 0)
+        ),
+        key=lambda s: (("move", "recheck", "download", "upload").index(s["why"]), -(s["up"] + s["dl"])),
+    )
     recent = [
         {
             "time": _iso(m.get("timestamp", 0)),
@@ -122,6 +149,12 @@ def gather(client, events=30, cfg=None):
         # Match on the message, not on the torrent name ("Movie" is not a move).
         if EVENT.search(m.setdefault("message", "").split(". Torrent:")[0]) or (m.get("type") or 1) >= 4
     ][-events:]
+    # Warnings and errors on their own: a burst of moves must not push them out.
+    errors = [
+        {"time": _iso(m.get("timestamp", 0)), "level": LEVEL.get(m.get("type"), "warn"), "message": m["message"]}
+        for m in log
+        if (m.get("type") or 1) >= 4
+    ][-errors_kept:]
     return {
         "generated": datetime.now(UTC).isoformat(timespec="seconds"),
         "version": client.version(),
@@ -132,6 +165,8 @@ def gather(client, events=30, cfg=None):
             "count": len(checking),
             # Progress of a checking torrent is the check's own progress: size * rest = left to read.
             "bytes": sum(b["size"] * (1 - b["progress"]) for b in checking),
+            # One check runs at a time (max_active_checking_torrents); the others wait at 0 %.
+            "running": sum(1 for b in checking if b["progress"] > 0),
         },
         "io": {
             "queued_io_jobs": server.get("queued_io_jobs", 0),
@@ -141,7 +176,9 @@ def gather(client, events=30, cfg=None):
             "peers": server.get("total_peer_connections", 0),
         },
         "settings": {k: prefs[k] for k in SETTINGS if k in prefs},
+        "io_sources": io_sources,
         "events": recent,
+        "errors": errors,
         "moves": log_moves(log),
         "removals": log_removals(log),
         "jobs": actions.refresh(cfg, torrents) if cfg else [],
@@ -164,12 +201,16 @@ def show(st, ui):
     io = st["io"]
     level = ui.ko if io["average_time_queue_ms"] >= 1000 else ui.warn if io["queued_io_jobs"] else ui.ok
     level(
-        f"disk queue: {io['queued_io_jobs']} jobs, {io['average_time_queue_ms']} ms average wait | "
+        f"qBittorrent disk I/O: {io['queued_io_jobs']} block requests waiting (not torrents), "
+        f"{io['average_time_queue_ms']} ms average wait | "
         f"up {_size(io['up_speed'])}/s, down {_size(io['dl_speed'])}/s, {io['peers']} peers"
     )
     chk = st["checking"]
     if chk["count"]:
-        ui.warn(f"rechecks: {chk['count']} torrent(s), about {_size(chk['bytes'])} left to read")
+        ui.warn(
+            f"rechecks: {chk['count']} torrent(s), {chk['running']} running, {chk['count'] - chk['running']} waiting, "
+            f"about {_size(chk['bytes'])} left to read"
+        )
 
     moving = [m for m in st.get("moves", []) if m["status"] in ("pending", "running")]
     if moving:
@@ -187,6 +228,19 @@ def show(st, ui):
             level(f"{b['state']:<18} {b['progress'] * 100:5.1f}% {_size(b['size']):>10}  {b['name']}{cat}")
     else:
         ui.ok("nothing moving, checking or in error")
+
+    if st.get("io_sources"):
+        print()
+        ui.info("disk I/O comes from:")
+        for s in st["io_sources"]:
+            ui.info(f"{s['why']:<9} up {_size(s['up'])}/s, down {_size(s['dl'])}/s  {s['name']}")
+
+    if st.get("errors"):
+        print()
+        ui.info("latest qBittorrent warnings and errors (log):")
+        for e in st["errors"]:
+            stamp = datetime.fromisoformat(e["time"]).astimezone().strftime("%m-%d %H:%M")
+            getattr(ui, e["level"])(f"{stamp}  {e['message']}")
 
     if st["events"]:
         print()

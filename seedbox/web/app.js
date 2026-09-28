@@ -590,6 +590,14 @@ function renderErrorsTile() {
   var box = $('k-errors'), hashes = S.error_torrents || [];
   kpi(box, 'Torrents in error', 'warn', hashes.length, 'torrents', 'Deleted by the tracker, tracker errors, failed matches, missing files');
   if (hashes.length) box.querySelector('.value').style.color = C.ko;
+  // Deleted by the tracker: dead weight, announces and disk for nothing.
+  var gone = hashes.filter(function (h) { return BYHASH[h] && BYHASH[h].issues.some(function (i) { return i.code === 'unregistered'; }); });
+  if (gone.length) {
+    box.appendChild(el('div', {}, [el('button', {'class': 'btn sm danger', type: 'button', onclick: function () {
+      confirmAct('remove', gone, 'Remove ' + gone.length + ' torrent(s) deleted by their tracker?',
+        'They no longer exist on the tracker (unregistered, 404…). Files are deleted only if they sit in the transient folder.');
+    }}, [icon('remove', 'sm'), 'Remove ' + gone.length + ' deleted by tracker'])]));
+  }
   box.appendChild(dropList(hashes.map(function (h) { return BYHASH[h]; }).filter(Boolean), function (t) {
     var issue = t.issues[0] || {};
     return el('div', {'class': 'item'}, [el('span', {'class': 'badge ko', text: (issue.code || t.state).replace('_', ' ')}),
@@ -647,16 +655,16 @@ function jobBadge(status) {
   var cls = {pending: 'warn', running: 'info', done: 'ok', failed: 'ko'}[status] || '';
   return el('span', {'class': 'badge ' + cls}, [status === 'running' ? icon('refresh', 'sm spin') : null, status]);
 }
-function dropList(items, render) {
+function dropList(items, render, label) {
   var list = el('div', {'class': 'drop-list'});
   if (!items.length) list.appendChild(el('div', {'class': 'item faint', text: 'Nothing pending.'}));
   items.forEach(function (it) { list.appendChild(render(it)); });
-  return el('details', {'class': 'drop'}, [el('summary', {}, ['Show list', icon('chevron', 'sm chev')]), list]);
+  return el('details', {'class': 'drop'}, [el('summary', {}, [label || 'Show list', icon('chevron', 'sm chev')]), list]);
 }
 function renderQueueTiles() {
   var q = $('k-queue'), r = $('k-rechecks');
   if (!L) {
-    kpi(q, 'Queued jobs', 'move', '—', '', LIVE ? 'Loading…' : 'Live data needs seedbox run');
+    kpi(q, 'Queued moves & removals', 'move', '—', '', LIVE ? 'Loading…' : 'Live data needs seedbox run');
     kpi(r, 'Rechecks pending', 'recheck', '—', '', LIVE ? 'Loading…' : 'Live data needs seedbox run');
     return;
   }
@@ -664,15 +672,17 @@ function renderQueueTiles() {
   var removes = o.jobs.filter(function (j) { return j.action === 'remove'; }).length;
   var others = o.jobs.length - moves - removes;
   var logOnly = o.logMoves.filter(function (m) { return !o.jobs.some(function (j) { return j.name === m.name; }); });
-  kpi(q, 'Queued jobs', 'move', o.jobs.length + logOnly.length, '', moves + ' moves · ' + removes + ' removals · ' + others + ' other' +
-    (logOnly.length ? ' · ' + logOnly.length + ' moves from the log' : ''));
+  kpi(q, 'Queued moves & removals', 'move', o.jobs.length + logOnly.length, '', 'Actions not finished yet, sent from here or seen in the log: ' +
+    moves + ' moves · ' + removes + ' removals · ' + others + ' other' + (logOnly.length ? ' · ' + logOnly.length + ' moves from the log' : ''));
   q.appendChild(dropList(o.jobs.concat(logOnly.map(function (m) { return {action: 'move', status: m.status, name: m.name, submitted: Date.parse(m.time) / 1000}; })),
     function (j) {
       return el('div', {'class': 'item'}, [jobBadge(j.status), el('span', {'class': 'badge', text: j.action}),
         el('span', {'class': 'name', title: j.name, text: j.name}), el('span', {'class': 'faint small', text: ago(j.submitted * 1000)})]);
     }));
   var checking = L.busy.filter(function (b) { return /^checking/.test(b.state); });
-  kpi(r, 'Rechecks pending', 'recheck', L.checking.count, '', bytes(L.checking.bytes) + ' left to read, one at a time');
+  var running = L.checking.running || 0;
+  kpi(r, 'Rechecks pending', 'recheck', L.checking.count, '', running + ' running, ' + (L.checking.count - running) + ' waiting their turn · ' +
+    bytes(L.checking.bytes) + ' left to read');
   r.appendChild(dropList(checking, function (b) {
     return el('div', {'class': 'item'}, [el('span', {'class': 'badge ' + (b.progress > 0 ? 'info' : ''), text: pct(b.progress * 100, 1)}),
       el('span', {'class': 'name', title: b.name, text: b.name}), el('span', {'class': 'faint small', text: bytes(b.size)})]);
@@ -681,12 +691,20 @@ function renderQueueTiles() {
 function renderActivity() {
   var io = $('a-io'), tr = $('a-transfer'), busy = $('a-busy'), jobs = $('a-jobs');
   if (!L) {
-    [io, tr].forEach(function (b) { kpi(b, b === io ? 'Disk queue' : 'Transfer', b === io ? 'disk' : 'activity', '—', '', LIVE ? 'Loading…' : 'Live data needs seedbox run'); });
+    [io, tr].forEach(function (b) { kpi(b, b === io ? 'qBittorrent disk I/O' : 'Transfer', b === io ? 'disk' : 'activity', '—', '', LIVE ? 'Loading…' : 'Live data needs seedbox run'); });
     return;
   }
   var wait = L.io.average_time_queue_ms;
-  kpi(io, 'Disk queue', 'disk', L.io.queued_io_jobs, 'jobs', wait + ' ms average wait' + (wait >= 1000 ? ': disk saturated' : ''));
+  kpi(io, 'qBittorrent disk I/O', 'disk', L.io.queued_io_jobs, 'requests waiting', 'Block reads and writes queued inside qBittorrent, not torrents · ' +
+    wait + ' ms average wait' + (wait >= 1000 ? ': disk saturated' : ''));
   io.querySelector('.value').style.color = wait >= 1000 ? C.ko : L.io.queued_io_jobs ? C.warn : C.ok;
+  var ioCls = {move: 'warn', recheck: 'info', download: 'ok', upload: ''};
+  io.appendChild(dropList(L.io_sources || [], function (s) {
+    return el('div', {'class': 'item'}, [el('span', {'class': 'badge ' + ioCls[s.why], text: s.why}),
+      el('span', {'class': 'name', title: s.name, text: s.name}),
+      el('span', {'class': 'faint small', text: s.why === 'recheck' ? pct(s.progress * 100, 1) : s.why === 'move' ? bytes(s.size)
+        : '↑ ' + rate(s.up) + ' · ↓ ' + rate(s.dl)})]);
+  }, 'Torrents using the disk'));
   kpi(tr, 'Transfer', 'activity', rate(L.io.up_speed), 'up', 'Down ' + rate(L.io.dl_speed) + ' · ' + L.io.peers + ' peers · qBittorrent ' + L.version);
 
   clear(busy);
@@ -719,6 +737,9 @@ function renderLogs() {
   if (!L) { box.appendChild(el('p', {'class': 'empty', text: LIVE ? 'Loading…' : 'Live data needs seedbox run.'})); return; }
   var rows = L.events.slice().reverse();
   if (!rows.length) { box.appendChild(el('p', {'class': 'empty', text: 'No move, removal or error in the log.'})); return; }
+  box.appendChild(logTable(rows));
+}
+function logTable(rows) {
   var tb = el('tbody');
   rows.forEach(function (e) {
     var cls = {info: 'info', warn: 'warn', ko: 'ko'}[e.level];
@@ -726,10 +747,17 @@ function renderLogs() {
       el('td', {}, [el('span', {'class': 'badge ' + cls, text: e.level === 'ko' ? 'error' : e.level === 'warn' ? 'warning' : 'info'})]),
       el('td', {text: e.message})]));
   });
-  box.appendChild(el('div', {'class': 'table-wrap'}, [el('table', {'class': 'log'}, [tb])]));
+  return el('div', {'class': 'table-wrap'}, [el('table', {'class': 'log'}, [tb])]);
+}
+function renderErrors() {
+  var box = $('a-errors'); clear(box);
+  if (!L) { box.appendChild(el('p', {'class': 'empty', text: LIVE ? 'Loading…' : 'Live data needs seedbox run.'})); return; }
+  var rows = (L.errors || []).slice().reverse();
+  if (!rows.length) box.appendChild(el('p', {'class': 'empty', text: 'No warning or error in the qBittorrent log.'}));
+  else box.appendChild(logTable(rows));
 }
 function refreshLive() {
-  if (!LIVE) { renderQueueTiles(); renderActivity(); renderLogs(); return Promise.resolve(); }
+  if (!LIVE) { renderQueueTiles(); renderActivity(); renderErrors(); renderLogs(); return Promise.resolve(); }
   $('live-refresh').disabled = true;
   document.querySelectorAll('[data-live]').forEach(function (n) { n.classList.add('stale'); });
   return api('api/status').then(function (st) { L = st; }).catch(function (e) {
@@ -738,7 +766,7 @@ function refreshLive() {
     document.querySelectorAll('[data-live]').forEach(function (n) { n.classList.remove('stale'); });
     $('live-refresh').disabled = false;
     $('live-time').textContent = L ? 'Updated ' + new Date().toLocaleTimeString() : '';
-    renderQueueTiles(); renderActivity(); renderLogs();
+    renderQueueTiles(); renderActivity(); renderErrors(); renderLogs();
   });
 }
 function setAuto(on) {
