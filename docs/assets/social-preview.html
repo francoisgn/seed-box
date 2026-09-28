@@ -1,0 +1,91 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Inconsolata:wght@400;500;600;700&display=block" rel="stylesheet">
+<style>
+:root{--bg:#121212;--s1:#1e1e1e;--s3:#2c2c2c;--t1:rgba(255,255,255,.87);--t2:rgba(255,255,255,.6);--t3:rgba(255,255,255,.38);--line:rgba(255,255,255,.12);
+--p:#8ab4f8;--ok:#81c995;--warn:#fde293;--ko:#f28b82;--a:#3987e5;--b:#d95926;--c:#199e70}
+*{box-sizing:border-box;margin:0}
+body{width:1280px;height:640px;overflow:hidden;background:radial-gradient(1200px 500px at 85% -10%,rgba(138,180,248,.10),transparent 60%),var(--bg);
+color:var(--t1);font-family:Inconsolata,ui-monospace,Menlo,monospace;padding:40px 48px}
+.top{display:flex;gap:36px;align-items:center;height:250px}
+.top svg.logo{width:320px;height:240px;flex:none}
+.kicker{color:var(--p);font-size:18px;letter-spacing:.08em;display:flex;gap:10px;align-items:center}
+.kicker svg{width:24px;height:24px}
+h1{font-size:54px;font-weight:600;margin:6px 0 10px;letter-spacing:-.01em}
+.tag{font-size:23px;color:var(--t2);line-height:1.35;max-width:780px}
+.tag b{color:var(--t1);font-weight:600}
+.chips{display:flex;gap:10px;margin-top:18px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);border-radius:8px;padding:6px 12px;font-size:15px;color:var(--t2)}
+.chip i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:middle}
+.row{display:grid;grid-template-columns:1fr 1.35fr 1.2fr 1.1fr;gap:18px;margin-top:22px;height:290px}
+.card{background:var(--s1);border-radius:16px;padding:18px 20px;overflow:hidden}
+.card h3{font-size:16px;font-weight:500;color:var(--t1);margin-bottom:12px}
+.card .sub{color:var(--t3);font-size:13px;margin:-8px 0 10px}
+.leg{font-size:13px;color:var(--t2);display:grid;gap:5px;margin-top:10px}
+.leg span i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:8px;vertical-align:-1px}
+.item{display:flex;align-items:center;gap:8px;font-size:13.5px;padding:7px 0;border-bottom:1px solid var(--line);white-space:nowrap}
+.item:last-of-type{border:0}
+.badge{border-radius:6px;padding:2px 7px;font-size:12px;flex:none}
+.warn{background:rgba(253,226,147,.15);color:var(--warn)}.ko{background:rgba(242,139,130,.15);color:var(--ko)}
+.okb{background:rgba(129,201,149,.15);color:var(--ok)}.info{background:rgba(138,180,248,.15);color:var(--p)}
+.nm{overflow:hidden;text-overflow:ellipsis;color:var(--t2)}
+.btn{margin-top:12px;display:inline-flex;gap:6px;align-items:center;border:1px solid rgba(242,139,130,.5);color:var(--ko);border-radius:8px;padding:6px 12px;font-size:13.5px}
+.chk{font-size:14.5px;display:grid;gap:11px;margin-top:4px}
+.chk div{display:flex;gap:10px}.chk b{font-weight:600;width:14px;text-align:center}
+</style></head><body>
+<div class="top">
+  @@LOGO@@
+  <div>
+    <div class="kicker">@@FLAG@@ seed-box · v1</div>
+    <h1>Seedbox control plane</h1>
+    <p class="tag">Is your library <b>actually seeded</b> on every tracker?<br>See it at a glance, then fix it in one click.</p>
+    <div class="chips">
+      <span class="chip"><i style="background:var(--a)"></i>qBittorrent</span>
+      <span class="chip"><i style="background:var(--b)"></i>cross-seed</span>
+      <span class="chip"><i style="background:var(--c)"></i>Prowlarr</span>
+      <span class="chip">matched by inode</span>
+      <span class="chip">one container, no dependency</span>
+    </div>
+  </div>
+</div>
+<div class="row">
+  <div class="card"><h3>Library shared</h3>
+    <svg viewBox="0 0 120 120" width="128" height="128" style="display:block;margin:0 auto">
+      <g transform="rotate(-90 60 60)" fill="none" stroke-width="14">
+        <circle cx="60" cy="60" r="46" stroke="#3a3a3a"/>
+        <circle cx="60" cy="60" r="46" stroke="#81c995" stroke-dasharray="72 289" />
+        <circle cx="60" cy="60" r="46" stroke="#8ab4f8" stroke-dasharray="130 289" stroke-dashoffset="-73"/>
+        <circle cx="60" cy="60" r="46" stroke="#fde293" stroke-dasharray="10 289" stroke-dashoffset="-204"/>
+      </g>
+      <text x="60" y="64" text-anchor="middle" fill="rgba(255,255,255,.87)" font-size="22" font-family="Inconsolata" font-weight="600">71 %</text>
+      <text x="60" y="80" text-anchor="middle" fill="rgba(255,255,255,.5)" font-size="10" font-family="Inconsolata">shared</text>
+    </svg>
+    <div class="leg"><span><i style="background:#81c995"></i>on every tracker</span><span><i style="background:#8ab4f8"></i>on some trackers</span><span><i style="background:#fde293"></i>downloading</span><span><i style="background:#3a3a3a"></i>not seeded yet</span></div>
+  </div>
+  <div class="card"><h3>Seeded entries over time</h3><p class="sub">per tracker, stacked</p>
+    <svg viewBox="0 0 300 170" width="100%" height="190" preserveAspectRatio="none">
+      <g stroke="rgba(255,255,255,.08)"><line x1="0" x2="300" y1="40" y2="40"/><line x1="0" x2="300" y1="85" y2="85"/><line x1="0" x2="300" y1="130" y2="130"/></g>
+      <polygon fill="#199e70" opacity=".7" points="0,112 40,108 80,104 120,90 160,88 200,62 240,52 300,30 300,96 240,108 200,112 160,120 120,122 80,130 40,134 0,136"/>
+      <polygon fill="#d95926" opacity=".7" points="0,136 40,134 80,130 120,122 160,120 200,112 240,108 300,96 300,146 240,150 200,152 160,154 120,155 80,157 40,158 0,160"/>
+      <polygon fill="#3987e5" opacity=".7" points="0,160 40,158 80,157 120,155 160,154 200,152 240,150 300,146 300,170 0,170"/>
+    </svg>
+    <div class="leg" style="grid-auto-flow:column;margin-top:4px"><span><i style="background:#3987e5"></i>tracker-a</span><span><i style="background:#d95926"></i>tracker-b</span><span><i style="background:#199e70"></i>tracker-c</span></div>
+  </div>
+  <div class="card"><h3>Duplicates, cleaned</h3>
+    <div class="item"><span class="badge warn">same tracker ×3</span><span class="nm">Some.Film.2017.1080p</span></div>
+    <div class="item"><span class="badge info">2 versions</span><span class="nm">1080p + 2160p</span></div>
+    <div class="item"><span class="badge warn">episode twice</span><span class="nm">S02E05</span></div>
+    <div class="item"><span class="badge ko">deleted by tracker</span><span class="nm">404 · unregistered</span></div>
+    <span class="btn">✕ Keep the best, drop extras</span>
+  </div>
+  <div class="card"><h3>Health, live</h3>
+    <div class="chk">
+      <div><b style="color:var(--ok)">✓</b><span>library ↔ torrents by inode</span></div>
+      <div><b style="color:var(--warn)">↻</b><span>recheck 1 running, 5 waiting</span></div>
+      <div><b style="color:var(--p)">⇄</b><span>moves via qBittorrent</span></div>
+      <div><b style="color:var(--ko)">✗</b><span>unreadable files flagged</span></div>
+      <div><b style="color:var(--warn)">≋</b><span>disk I/O and who causes it</span></div>
+      <div><b style="color:var(--ok)">↑</b><span>upload opportunities</span></div>
+    </div>
+  </div>
+</div>
+</body></html>

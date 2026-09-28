@@ -1,9 +1,15 @@
-# seed-box
+<p align="center">
+  <img src="seedbox/web/logo.svg" width="280" alt="Clawd with a pirate eye patch, typing seedbox status on an iMac">
+</p>
 
-**Seedbox control plane**: a dashboard that answers one question, **is my
-library actually shared on my trackers, and are all my trackers fed?**, then
-helps fix what is not: duplicates, stopped torrents, failed cross-seed
-matches, files to regroup, all applied through qBittorrent in one click.
+<h1 align="center">seed-box</h1>
+
+<p align="center"><b>Seedbox control plane</b> for qBittorrent, cross-seed and Prowlarr</p>
+
+A dashboard that answers one question, **is my library actually shared on my
+trackers, and are all my trackers fed?**, then helps fix what is not:
+duplicates, stopped torrents, failed cross-seed matches, torrents deleted by
+their tracker, unreadable files, all applied through qBittorrent in one click.
 
 It bridges three sources that do not talk to each other:
 
@@ -33,8 +39,8 @@ An entry stays recognised after being renamed or moved. The torrent file list
 comes from the qBittorrent API, so a torrent only claims its own files.
 
 An **entry** is one work as stored: a film file (with its sidecars and
-CD1/CD2 parts) when films sit side by side in a folder (`incoming`,
-`archives`…), a folder when it holds one film with extras, a season, or a
+CD1/CD2 parts) when films sit side by side in a folder (`downloads`,
+`unsorted`…), a folder when it holds one film with extras, a season, or a
 numbered collection (`DBZ - 001…`). Grouping folders are walked through.
 
 | Status | Meaning |
@@ -57,7 +63,7 @@ reduced to their domain and merged. The dashboard flags:
 | Issue | Cause | Fix from the dashboard |
 |---|---|---|
 | Same file, same tracker | a tracker holds several uploads of one release; cross-seed injects each | remove the extras, the most seeded complete one is kept |
-| Several versions | same title and year, different files (1080p and 2160p, archives and incoming) | pick one; the other has a move or `rm` hint |
+| Several versions | same title and year, different files (1080p and 2160p, or in two folders) | pick one; the other has a move or `rm` hint |
 | Episodes twice | same episode number twice in a season folder | by hand |
 | Failed match | cross-seed partial match stopped at 0 %: the data did not verify | recheck, or remove |
 | Stopped | a torrent neither seeds nor downloads | start, recheck |
@@ -66,6 +72,8 @@ reduced to their domain and merged. The dashboard flags:
 | Category | torrent not in the category of its folder, cross-seed link without the link category, finished download still in the transient folder | set the matching category, or apply the category folder (qBittorrent moves it) |
 | Outside declared trackers | tracker unknown to Prowlarr (public, one-off) | clean it when done |
 | Outside the library | torrent matched to no entry: library copy deleted (only cross-seed links left), other share, missing files | shown with the reason |
+| Deleted by the tracker | the tracker answers "unregistered" or 404 for this torrent (a 404 on every torrent of a tracker means its announce URL changed, and is not flagged) | remove them all in one click |
+| Unreadable file | a media file nobody can read (mode 000): its torrents look fine until a peer asks, then fail with `file_open` | `seedbox check` lists them; `chmod a+r` |
 
 Moves go through qBittorrent (`setLocation`), one at a time on its side, so
 torrents follow their files and cross-seed hardlinks stay valid. A removal
@@ -76,14 +84,18 @@ torrents whose content no other torrent uses.
 
 Served by `seedbox run`, the dashboard also shows:
 
-- **qBittorrent activity**: queued jobs (moves, removals) with their progress,
-  rechecks pending (running, waiting) and bytes left to read, disk I/O queue
-  and the torrents behind it, latest errors, busy torrents, log;
+- **qBittorrent activity**: queued moves and removals with their progress,
+  rechecks (running, waiting their turn) and bytes left to read, the disk I/O
+  queue and the torrents causing it, latest warnings and errors from its log,
+  busy torrents, jobs sent from the dashboard;
 - **system**: CPU and IO wait, busiest disk, memory, transfer, volume usage,
   sampled every 5 minutes from `/proc` (host-wide in a container) and one light
   qBittorrent call, kept 14 days in `metrics.jsonl`;
-- **seeded entries over time**, rebuilt from the torrents' add dates, so the
-  trend is there from the first run.
+- **seeded entries over time**, per tracker and stacked, rebuilt from the
+  torrents' add dates, so the trend is there from the first run.
+
+Auto refresh reloads live panels and metrics every minute. The search box of
+the Library section filters entries by name, folder or tracker.
 
 ## Deploy (container, remote host)
 
@@ -169,7 +181,6 @@ the `_FILE` suffix (Docker secrets), e.g. `SEEDBOX_QBT_PASSWORD_FILE`.
 | `SEEDBOX_METRICS_INTERVAL` | `service.metrics_interval` (seconds, `0` = off) | `300` |
 | | `service.metrics_days`: metrics kept | `14` |
 | | `library.link_dirs`: cross-seed link folder names | `[".cross-seed"]` |
-| | `library.merge_from`, `library.merge_into`: regroup plan (folder labels) | none |
 | | `library.transient_dir`: folder of partial and one-off downloads | none |
 | | `cross_seed.db`, `cross_seed.link_category` | `/cross-seed/cross-seed.db`, `cross-seed-link` |
 

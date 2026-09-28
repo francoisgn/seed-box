@@ -127,7 +127,7 @@ def _torrent_record(cfg, torrent, keys, files, tracker_errors=()):
     media_missing = any(_is_media_name(cfg, f.get("name", "")) for f in missing)
     local_content = map_path(cfg, torrent.get("content_path") or "")
     issues = []
-    link = torrent.get("category") == "cross-seed-link" or _in_link_dir(cfg, local_content)
+    link = torrent.get("category") == cfg.link_category or _in_link_dir(cfg, local_content)
     if state in STOPPED and progress < 1:
         if link and progress == 0:
             issues.append(
@@ -440,72 +440,6 @@ def search_status(cfg, entries, xs, target):
     return counts
 
 
-def merge_plan(cfg, entries, records):
-    """Regroup plan: content of merge_from folders into merge_into.
-
-    Entries with a library torrent move through qBittorrent (hardlinks of
-    cross-seed follow, nothing to copy on one volume); the others are plain
-    files: a shell script for the media share does them.
-    """
-    if not cfg.merge_into or not cfg.merge_from:
-        return None
-    base = os.path.dirname(cfg.roots[0])
-    target = os.path.join(base, cfg.merge_into)
-    torrents, files = [], []
-    for i, entry in enumerate(entries):
-        # Sub-folders too: films/saga/Hannibal/… goes flat into merge_into.
-        if not any(entry.folder == f or entry.folder.startswith(f + "/") for f in cfg.merge_from):
-            continue
-        main = [records[t]["hash"] for t in entry.torrents if not records[t]["link"]]
-        if main:
-            torrents.extend(h for h in main if h not in torrents)
-        else:
-            files.append(i)
-    rel = [os.path.relpath(entries[i].path, base) for i in files]
-    extra = [f for i in files if entries[i].kind == "file" for f in _siblings_rel(entries[i], base)]
-    lines = [f'mkdir -p "{cfg.merge_into}"'] + [f'mv -n -- "{p}" "{cfg.merge_into}/"' for p in rel + extra]
-    return {
-        "category": "",
-        "into": cfg.merge_into,
-        "into_path": target,
-        "into_qbt": unmap_path(cfg, target),
-        "from": cfg.merge_from,
-        "torrents": torrents,
-        "files": files,
-        "script": "\n".join(lines),
-    }
-
-
-def _merge_with_category(cfg, entries, records, categories):
-    """The regroup plan, with the qBittorrent category whose folder is the target
-    (then the move is: set that category, auto management on)."""
-    plan = merge_plan(cfg, entries, records)
-    if plan:
-        for name, c in categories.items():
-            if (c.get("savePath") or "").rstrip("/") == plan["into_qbt"]:
-                plan["category"] = name
-    return plan
-
-
-def _siblings_rel(entry, base):
-    """Sidecars and other parts of a file entry, relative to base (the main file excluded)."""
-    folder = os.path.dirname(entry.path)
-    stem = os.path.splitext(os.path.basename(entry.path))[0]
-    key = titles.part_key(os.path.basename(entry.path))
-    out = []
-    try:
-        names = sorted(os.listdir(folder))
-    except OSError:
-        return out
-    for name in names:
-        full = os.path.join(folder, name)
-        if full == entry.path or not os.path.isfile(full):
-            continue
-        if name.startswith(stem + ".") or (key and titles.part_key(name) == key):
-            out.append(os.path.relpath(full, base))
-    return out
-
-
 def category_check(cfg, records, categories):
     """Is each torrent in the category that matches where its files are?
 
@@ -614,8 +548,6 @@ def folders(cfg, entries):
         local = os.path.dirname(e.path)
         if _under_roots(cfg, local):
             seen[local] = seen.get(local, 0) + 1
-    if cfg.merge_into and cfg.roots:
-        seen.setdefault(os.path.join(os.path.dirname(cfg.roots[0]), cfg.merge_into), 0)
     return [
         {"path": p, "qbt": unmap_path(cfg, p), "label": _label(cfg, p), "entries": n}
         for p, n in sorted(seen.items(), key=lambda kv: kv[0].lower())
@@ -748,7 +680,6 @@ def run(cfg, log, progress=lambda msg: None):
         ],
         "search": search,
         "cross_seed": {"indexers": xs["indexers"]} if xs else None,
-        "merge": _merge_with_category(cfg, entries, records, categories),
         "categories": category_check(cfg, records, categories),
         "undeclared": [r["hash"] for r in records if not r["declared"]],
         "transient_qbt": unmap_path(cfg, cfg.transient_dir) if cfg.transient_dir else "",

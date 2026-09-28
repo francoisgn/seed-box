@@ -244,7 +244,7 @@ class Diagnosis(unittest.TestCase):
 
 
 class CrossSeed(unittest.TestCase):
-    """Search history: opportunity vs not searched yet; regroup plan; tracker-deleted torrents."""
+    """Search history: opportunity vs not searched yet; moves; tracker-deleted torrents."""
 
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -255,8 +255,6 @@ class CrossSeed(unittest.TestCase):
             touch(os.path.join(self.films, "archives", name))
         touch(os.path.join(self.films, "incoming", "New.2024.mkv"))
         touch(os.path.join(self.films, "incoming", "New.2024.nfo"), 1)
-        for name in ("Kingsman.2014.mkv", "Kingsman.2017.mkv"):
-            touch(os.path.join(self.films, "saga", "Kingsman", name))
         self.db = os.path.join(t, "cross-seed.db")
         db = sqlite3.connect(self.db)
         db.executescript(
@@ -278,13 +276,11 @@ class CrossSeed(unittest.TestCase):
         db.commit()
         db.close()
         self.cfg = load_cfg([self.films], os.path.join(t, "out"), path_map={"/video": self.media})
-        self.cfg.merge_from = ["films/archives", "films/incoming", "films/saga"]
-        self.cfg.merge_into = "films/films"
 
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_search_status_and_merge(self):
+    def test_search_status(self):
         xs = crossseed.read(self.db, {}, {"alpha": "alpha.example", "beta": "beta.example"})
         self.assertNotIn("SECRET", repr(xs))
         entries, _ = library.build(self.cfg)
@@ -305,21 +301,10 @@ class CrossSeed(unittest.TestCase):
         self.assertEqual(other.search_state, "other_release")
         self.assertEqual([i["status"] for i in xs["indexers"]], ["OK", "RATE_LIMITED"])
 
-        records = [{"hash": A, "link": False}, {"hash": B, "link": True}]
-        by["Split.2017.mkv"].torrents = [0]
-        by["Other.2018.mkv"].torrents = [1]
-        plan = collect.merge_plan(self.cfg, entries, records)
-        self.assertEqual(plan["torrents"], [A])
-        self.assertEqual(plan["into_qbt"], "/video/films/films")
-        self.assertIn('mv -n -- "films/incoming/New.2024.nfo" "films/films/"', plan["script"])
-        self.assertIn('mv -n -- "films/archives/Other.2018.mkv" "films/films/"', plan["script"])
-        self.assertNotIn("Split", plan["script"])
-        # A saga sub-folder goes flat into the target.
-        self.assertIn('mv -n -- "films/saga/Kingsman/Kingsman.2014.mkv" "films/films/"', plan["script"])
         # The new folder does not exist yet: qBittorrent creates it.
         self.cfg.actions = True
         qbt = FakeQbt([{"hash": A, "name": "Split", "save_path": "/video/films/archives"}], {})
-        actions.run(self.cfg, qbt, {"action": "move", "hashes": [A], "location": plan["into_path"]})
+        actions.run(self.cfg, qbt, {"action": "move", "hashes": [A], "location": os.path.join(self.films, "films")})
         self.assertEqual(qbt.calls[-1], ("move", [A], "/video/films/films"))
 
     def test_unregistered(self):

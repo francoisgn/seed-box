@@ -52,11 +52,6 @@ class Config:
     # Folders holding cross-seed links (path component names): torrents found
     # there are linked copies, not library content.
     link_dirs: list = field(default_factory=lambda: [".cross-seed"])
-    # Regroup plan: folders (labels like "films/incoming") whose content goes
-    # into one folder ("films/films"), shown with its moves on the dashboard.
-    merge_from: list = field(default_factory=list)
-    merge_into: str = ""
-
     # Folder of transient downloads (partial, one-off, public): finished
     # torrents there may be removed with their files from the dashboard.
     transient_dir: str = ""
@@ -141,8 +136,6 @@ def load(path=None):
     cfg.skip_dirs = list(library.get("skip_dirs", cfg.skip_dirs))
     cfg.media_ext = [e.lower() for e in library.get("media_ext", cfg.media_ext)]
     cfg.link_dirs = list(library.get("link_dirs", cfg.link_dirs))
-    cfg.merge_from = [m.strip("/") for m in library.get("merge_from", cfg.merge_from)]
-    cfg.merge_into = library.get("merge_into", cfg.merge_into).strip("/")
     cfg.transient_dir = library.get("transient_dir", cfg.transient_dir).rstrip("/")
     cfg.link_category = data.get("cross_seed", {}).get("link_category", cfg.link_category)
     cfg.cross_seed_db = data.get("cross_seed", {}).get("db", cfg.cross_seed_db)
@@ -224,7 +217,7 @@ def fingerprint(cfg):
         "roots": cfg.roots, "max_depth": cfg.max_depth, "skip_dirs": cfg.skip_dirs, "media_ext": cfg.media_ext,
         "qbt_url": cfg.qbt_url, "qbt_username": cfg.qbt_username, "path_map": cfg.path_map,
         "prowlarr_url": cfg.prowlarr_url, "tracker_aliases": cfg.tracker_aliases, "link_dirs": cfg.link_dirs,
-        "merge": [cfg.merge_from, cfg.merge_into], "cross_seed_db": cfg.cross_seed_db,
+        "cross_seed_db": cfg.cross_seed_db,
     }  # fmt: skip
     return hashlib.sha256(json.dumps(relevant, sort_keys=True).encode()).hexdigest()[:12]
 

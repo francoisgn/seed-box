@@ -187,7 +187,8 @@ tr.detail td { background: var(--s2); padding: 16px 24px 24px; height: auto; }
 .tk { font-size: 12px; line-height: 16px; padding: 2px 8px; border-radius: 12px; border: 1px solid var(--line); color: var(--t2); white-space: nowrap; }
 .tk i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
 input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); cursor: pointer; }
-.more { display: flex; justify-content: center; padding: 16px; }
+.more { display: flex; justify-content: center; align-items: center; gap: 8px; padding: 16px; }
+.lib-search { max-width: none; margin-bottom: 16px; background: var(--s3); }
 .empty { color: var(--t2); padding: 24px 16px; }
 
 /* Detail panel */

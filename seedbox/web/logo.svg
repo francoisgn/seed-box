@@ -15,8 +15,8 @@
     <text x="57" y="35" fill="#81c995">$ <tspan fill="#e6edf3">seedbox status</tspan></text>
     <text x="57" y="46" fill="#8ab4f8">✓ <tspan fill="#9da7b3">452 entries, 3 trackers</tspan></text>
     <text x="57" y="57" fill="#fde293">↻ <tspan fill="#9da7b3">recheck 1/8 · 80.7 %</tspan></text>
-    <text x="57" y="68" fill="#81c995">⇄ <tspan fill="#9da7b3">moving to films/films…</tspan></text>
-    <text x="57" y="79" fill="#f28b82">✗ <tspan fill="#9da7b3">2 duplicates on tr4ker</tspan></text>
+    <text x="57" y="68" fill="#81c995">⇄ <tspan fill="#9da7b3">moving to movies/…</tspan></text>
+    <text x="57" y="79" fill="#f28b82">✗ <tspan fill="#9da7b3">2 duplicates on tracker-b</tspan></text>
     <text x="57" y="92" fill="#81c995">$ </text>
   </g>
   <rect x="66" y="86" width="5" height="8" fill="#e6edf3"><animate attributeName="opacity" values="1;0;1" dur="1.1s" repeatCount="indefinite"/></rect>

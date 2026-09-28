@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.0.0
+
+- Dashboard layout: Warnings first (collection warnings, torrents outside the
+  library), then Overview, System, Activity, Duplicates, Library, Logs.
+- Seeded entries over time: stacked area per tracker, the total is the top of
+  the stack; swapped with "Torrents added per day".
+- Latest qBittorrent errors and jobs sent from the dashboard: 5 lines, then
+  pages (15 and 30 lines, 2 pages).
+- Auto refresh button shows its period.
+- Library search box moved into the Library section.
+- Regroup plan removed (`library.merge_from`, `library.merge_into` are ignored).
+- Link category taken from `cross_seed.link_category` everywhere, not the
+  hard-coded default.
+- README: logo, torrents deleted by their tracker, unreadable files;
+  social preview in `docs/assets/`.
+
 ## 0.9.8
 
 - `seedbox check` flags media files nobody can read (mode 000 and the like),

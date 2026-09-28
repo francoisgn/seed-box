@@ -77,7 +77,7 @@ def _check_destination(cfg, local):
 
 
 def _is_link(cfg, torrent):
-    return torrent.get("category") == "cross-seed-link" or _in_link_dir(
+    return torrent.get("category") == cfg.link_category or _in_link_dir(
         cfg, map_path(cfg, torrent.get("content_path") or "")
     )
 

@@ -5,7 +5,7 @@ An entry is one work as it is stored and shared:
 - a folder whose media files are episodes (a season, a numbered collection
   like "DBZ - 001…") or a single film with its extras: the folder;
 - a folder holding several unrelated media files (films dropped side by side
-  in "incoming", "archives", "disney"…): one entry per file, with its
+  in "downloads", "unsorted"…): one entry per file, with its
   same-name sidecars (.nfo, .srt);
 - a season-pack folder made of one folder per episode: the season folder.
 
@@ -30,7 +30,7 @@ class Entry:
     files: int = 0
     media_inodes: set = field(default_factory=set)
     duplicate_episodes: dict = field(default_factory=dict)  # "S08E01" -> file names
-    # Only film of a grouping folder ("archives" holding one file): fine while
+    # Only film of a grouping folder ("unsorted" holding one file): fine while
     # moving or filling a folder, a problem if it lasts.
     lone: bool = False
     torrents: list = field(default_factory=list)
@@ -48,7 +48,7 @@ class Entry:
 
     @property
     def folder(self):
-        """Folder holding the entry, relative to its root's parent ("films/incoming")."""
+        """Folder holding the entry, relative to its root's parent ("movies/unsorted")."""
         parent = os.path.dirname(self.name)
         return f"{self.category}/{parent}" if parent else self.category
 
@@ -100,7 +100,7 @@ def _collect(cfg, path, depth):
     children = [c for d in dirs for c in _collect(cfg, d, depth + 1)]
     if depth > 0 and len(media) == 1 and not children:
         # One film, maybe with extras folders: the folder is the entry, unless
-        # it is a grouping folder ("archives") that happens to hold one film.
+        # it is a grouping folder ("unsorted") that happens to hold one film.
         grouping = titles.looks_like_release(os.path.basename(media[0])) and not titles.looks_like_release(
             os.path.basename(path)
         )

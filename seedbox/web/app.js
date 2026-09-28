@@ -253,8 +253,14 @@ function lineChart(box, o) {
   var W = Math.max(box.clientWidth, 280), Hh = o.height || 200, m = {l: 48, r: 16, t: 8, b: 24};
   var iw = W - m.l - m.r, ih = Hh - m.t - m.b;
   var x0 = o.xs[0], x1 = o.xs[o.xs.length - 1], span = Math.max(x1 - x0, 1);
-  var maxV = o.yMax || niceMax(Math.max.apply(null, o.series.map(function (s) {
-    return Math.max.apply(null, s.values.map(function (v) { return v || 0; }));
+  // Stacked: each series drawn on top of the previous ones; tops[k] = cumulated values.
+  var tops = [], run = o.xs.map(function () { return 0; });
+  o.series.forEach(function (s) {
+    run = run.map(function (v, k) { return v + (o.stack ? s.values[k] || 0 : 0); });
+    tops.push(o.stack ? run.slice() : s.values);
+  });
+  var maxV = o.yMax || niceMax(Math.max.apply(null, tops.map(function (vals) {
+    return Math.max.apply(null, vals.map(function (v) { return v || 0; }));
   })) * 1.05);
   function X(v) { return m.l + (v - x0) / span * iw; }
   function Y(v) { return m.t + ih - (v || 0) / maxV * ih; }
@@ -271,11 +277,15 @@ function lineChart(box, o) {
     axis.appendChild(sv('text', {x: X(xv), y: Hh - 4, 'text-anchor': j === 0 ? 'start' : j === ticks - 1 ? 'end' : 'middle', text: o.xFmt(xv)}));
   }
   svg.appendChild(grid); svg.appendChild(axis);
-  o.series.forEach(function (s) {
-    var pts = [];
-    o.xs.forEach(function (x, k) { if (s.values[k] !== null && s.values[k] !== undefined) pts.push(fix(X(x), 1) + ',' + fix(Y(s.values[k]), 1)); });
+  o.series.forEach(function (s, n) {
+    var pts = [], top = tops[n];
+    o.xs.forEach(function (x, k) { if (top[k] !== null && top[k] !== undefined) pts.push(fix(X(x), 1) + ',' + fix(Y(top[k]), 1)); });
     if (!pts.length) return;
-    if (s.area) {
+    if (o.stack) {
+      var below = n ? tops[n - 1] : o.xs.map(function () { return 0; });
+      var back = o.xs.map(function (x, k) { return fix(X(x), 1) + ',' + fix(Y(below[k]), 1); }).reverse();
+      svg.appendChild(sv('polygon', {points: pts.concat(back).join(' '), fill: s.color, opacity: 0.55}));
+    } else if (s.area) {
       svg.appendChild(sv('polygon', {points: fix(X(o.xs[0]), 1) + ',' + Y(0) + ' ' + pts.join(' ') + ' ' + fix(X(x1), 1) + ',' + Y(0),
         fill: s.color, opacity: 0.16}));
     }
@@ -292,13 +302,15 @@ function lineChart(box, o) {
     var cx = X(o.xs[best]);
     xh.setAttribute('x1', cx); xh.setAttribute('x2', cx); xh.setAttribute('visibility', 'visible');
     clear(dots);
-    var rows = [];
-    o.series.forEach(function (s) {
+    var rows = [], total = 0;
+    o.series.forEach(function (s, n) {
       var v = s.values[best];
       if (v === null || v === undefined) return;
-      dots.appendChild(sv('circle', {cx: cx, cy: Y(v), r: 4, fill: s.color, stroke: 'var(--s1)', 'stroke-width': 2}));
+      total += v;
+      dots.appendChild(sv('circle', {cx: cx, cy: Y(tops[n][best]), r: 4, fill: s.color, stroke: 'var(--s1)', 'stroke-width': 2}));
       rows.push({color: s.color, value: o.yFmt(v, true), label: s.name});
     });
+    if (o.stack) rows.reverse().push({color: 'transparent', value: o.yFmt(total, true), label: 'Total'});
     tip(e, o.tipFmt ? o.tipFmt(o.xs[best]) : o.xFmt(o.xs[best]), rows);
   });
   hit.addEventListener('pointerleave', function () { untip(); xh.setAttribute('visibility', 'hidden'); clear(dots); });
@@ -512,13 +524,13 @@ function renderOverview() {
 
   var tl = D.timeline || [];
   var tlBox = $('c-timeline');
-  var series = [{name: 'All trackers', color: C.primary, area: true, values: tl.map(function (p) { return p.seeded; })}];
+  var series = [];
   TRACKERS.forEach(function (t) {
     if (!tl.some(function (p) { return p.trackers[t.name]; })) return;
     series.push({name: t.name, color: TCOLOR[t.key], values: tl.map(function (p) { return p.trackers[t.name] || 0; })});
   });
   lineChart(tlBox, {
-    xs: tl.map(function (p) { return new Date(p.date).getTime(); }), series: series, label: 'Seeded entries over time',
+    xs: tl.map(function (p) { return new Date(p.date).getTime(); }), series: series, label: 'Seeded entries over time', stack: true,
     yFmt: function (v) { return String(Math.round(v)); },
     xFmt: function (x) { return new Date(x).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}); },
     tipFmt: function (x) { return new Date(x).toLocaleDateString(); }
@@ -608,42 +620,6 @@ function renderErrorsTile() {
   }));
 }
 
-// ---------- regroup plan
-function renderMerge() {
-  var box = $('merge'), m = D.merge;
-  if (!m) { box.hidden = true; return; }
-  clear(box);
-  box.appendChild(el('div', {'class': 'card-head'}, [icon('move', 'sm'), el('h3', {text: 'Regroup ' + m.from.join(' + ') + ' into ' + m.into})]));
-  box.appendChild(el('p', {'class': 'muted', style: 'margin:0 0 16px',
-    text: 'Same volume: qBittorrent renames, nothing is copied, and cross-seed hardlinks stay valid. Other folders are not touched.'}));
-  var grid = el('div', {'class': 'grid'});
-  var left = el('div', {'class': 'c6'}, [el('div', {'class': 'kpi'}, [el('div', {'class': 'label', text: 'With a library torrent: moved by qBittorrent'}),
-    el('div', {'class': 'value'}, [String(m.torrents.length), el('small', {text: 'torrents'})])])]);
-  if (m.torrents.length) {
-    left.appendChild(el('button', {'class': 'btn filled', type: 'button', style: 'margin-top:16px', onclick: function () {
-      confirmDialog('Move ' + m.torrents.length + ' torrents to ' + m.into + '?',
-        (m.category ? 'Category ' + m.category + ', auto management on: ' : '') + 'qBittorrent moves them one at a time; follow them in the queued jobs tile.', 'Move')
-        .then(function () {
-          // Through the category: qBittorrent moves each torrent to the category folder.
-          return m.category ? act('apply_category', m.torrents, {category: m.category}, 'Regroup')
-            : act('move', m.torrents, {location: m.into_path}, 'Regroup');
-        }, function () {});
-    }}, [icon('move', 'sm'), 'Move ' + m.torrents.length + ' torrents']));
-  }
-  var right = el('div', {'class': 'c6'}, [el('div', {'class': 'kpi'}, [el('div', {'class': 'label', text: 'Without a library torrent: plain files'}),
-    el('div', {'class': 'value'}, [String(m.files.length), el('small', {text: 'entries'})])])]);
-  if (m.files.length) {
-    var code = el('code', {text: m.script});
-    right.appendChild(el('div', {'class': 'cell-flex', style: 'margin:16px 0 8px;justify-content:space-between;flex-wrap:wrap'}, [
-      el('span', {'class': 'muted small', text: 'Run on the NAS from the media share root (the folder holding films/), after the qBittorrent moves:'}),
-      el('button', {'class': 'btn sm', type: 'button', onclick: function () { copyText(m.script, code); }},
-        [icon('copy', 'sm'), 'Copy script'])]));
-    right.appendChild(el('div', {'class': 'cmd', style: 'max-height:160px;overflow:auto;align-items:flex-start'}, [code]));
-  }
-  grid.appendChild(left); grid.appendChild(right);
-  box.appendChild(grid);
-}
-
 // ---------- live: activity, jobs, rechecks, logs
 var L = null, autoTimer = null;
 function openJobs() {
@@ -689,7 +665,7 @@ function renderQueueTiles() {
   }));
 }
 function renderActivity() {
-  var io = $('a-io'), tr = $('a-transfer'), busy = $('a-busy'), jobs = $('a-jobs');
+  var io = $('a-io'), tr = $('a-transfer'), busy = $('a-busy');
   if (!L) {
     [io, tr].forEach(function (b) { kpi(b, b === io ? 'qBittorrent disk I/O' : 'Transfer', b === io ? 'disk' : 'activity', '—', '', LIVE ? 'Loading…' : 'Live data needs seedbox run'); });
     return;
@@ -718,18 +694,23 @@ function renderActivity() {
     busy.appendChild(el('div', {'class': 'table-wrap'}, [el('table', {'class': 'dense'}, [el('thead', {}, [el('tr', {}, [
       el('th', {text: 'State'}), el('th', {text: 'Torrent'}), el('th', {'class': 'opt', text: 'Category'}), el('th', {'class': 'num', text: 'Size'}), el('th', {'class': 'num', text: 'Progress'})])]), tb])]));
   }
+  renderJobs();
+}
+function renderJobs() {
+  var jobs = $('a-jobs');
   clear(jobs);
   var list = (L.jobs || []).slice().reverse();
   if (!list.length) jobs.appendChild(el('p', {'class': 'empty', text: 'No job sent from the dashboard yet.'}));
   else {
-    var jb = el('tbody');
-    list.slice(0, 100).forEach(function (j) {
+    var jb = el('tbody'), view = paged('jobs', list, 5, 30, 2, renderJobs);
+    view.rows.forEach(function (j) {
       jb.appendChild(el('tr', {}, [el('td', {}, [jobBadge(j.status)]), el('td', {text: ACTION_TEXT[j.action] || j.action}),
         el('td', {'class': 'name'}, [el('div', {'class': 't', title: j.name, text: j.name})]),
         el('td', {'class': 'opt path', text: j.target || ''}), el('td', {'class': 'num muted', text: ago(j.submitted * 1000)})]));
     });
     jobs.appendChild(el('div', {'class': 'table-wrap'}, [el('table', {'class': 'dense'}, [el('thead', {}, [el('tr', {}, [
       el('th', {text: 'Status'}), el('th', {text: 'Action'}), el('th', {text: 'Torrent'}), el('th', {'class': 'opt', text: 'Target'}), el('th', {'class': 'num', text: 'Sent'})])]), jb])]));
+    jobs.appendChild(view.controls);
   }
 }
 function renderLogs() {
@@ -753,8 +734,30 @@ function renderErrors() {
   var box = $('a-errors'); clear(box);
   if (!L) { box.appendChild(el('p', {'class': 'empty', text: LIVE ? 'Loading…' : 'Live data needs seedbox run.'})); return; }
   var rows = (L.errors || []).slice().reverse();
-  if (!rows.length) box.appendChild(el('p', {'class': 'empty', text: 'No warning or error in the qBittorrent log.'}));
-  else box.appendChild(logTable(rows));
+  if (!rows.length) { box.appendChild(el('p', {'class': 'empty', text: 'No warning or error in the qBittorrent log.'})); return; }
+  var view = paged('errors', rows, 5, 15, 2, renderErrors);
+  box.appendChild(logTable(view.rows));
+  box.appendChild(view.controls);
+}
+// Short list first (few rows), "Show more" opens pages of `step` rows, at most
+// `pages` of them. State survives live refreshes.
+var PAGED = {};
+function paged(key, rows, first, step, pages, rerender) {
+  var st = PAGED[key] || (PAGED[key] = {open: false, page: 0});
+  var n = Math.min(pages, Math.ceil(rows.length / step)), bar = el('div', {'class': 'more'});
+  st.page = Math.min(st.page, n - 1);
+  function go(open, page) { st.open = open; st.page = page; rerender(); }
+  if (!st.open) {
+    if (rows.length > first) bar.appendChild(el('button', {'class': 'btn sm', type: 'button', onclick: function () { go(true, 0); }},
+      ['Show ' + Math.min(rows.length, step) + ' of ' + Math.min(rows.length, step * pages)]));
+    return {rows: rows.slice(0, first), controls: bar};
+  }
+  bar.appendChild(el('button', {'class': 'btn sm', type: 'button', onclick: function () { go(false, 0); }}, ['Show ' + first]));
+  for (var p = 0; n > 1 && p < n; p++) {
+    bar.appendChild(el('button', {'class': 'chip', type: 'button', 'aria-pressed': p === st.page ? 'true' : 'false',
+      'aria-label': 'Page ' + (p + 1), onclick: go.bind(null, true, p)}, [String(p + 1)]));
+  }
+  return {rows: rows.slice(st.page * step, (st.page + 1) * step), controls: bar};
 }
 function refreshLive() {
   if (!LIVE) { renderQueueTiles(); renderActivity(); renderErrors(); renderLogs(); return Promise.resolve(); }
@@ -772,7 +775,8 @@ function refreshLive() {
 function setAuto(on) {
   clearInterval(autoTimer);
   $('auto').setAttribute('aria-pressed', on ? 'true' : 'false');
-  if (on && LIVE) autoTimer = setInterval(function () { if (!document.hidden) { refreshLive(); refreshMetrics(); } }, 60000);
+  var period = Number($('auto').dataset.period) * 1000;
+  if (on && LIVE) autoTimer = setInterval(function () { if (!document.hidden) { refreshLive(); refreshMetrics(); } }, period);
 }
 
 // ---------- system metrics
@@ -1027,9 +1031,6 @@ function entryDetail(e) {
   } else if (e.search_state === 'not_indexed') {
     box.appendChild(el('div', {'class': 'muted small', text: 'Not in cross-seed data folders: never searched.'}));
   }
-  if (D.merge && D.merge.files.indexOf(e._i) >= 0) {
-    box.appendChild(el('div', {'class': 'muted small', text: 'No library torrent: moved by the script of the regroup card.'}));
-  }
   if (e._main.length) {
     var sel = el('select', {'class': 'select', 'aria-label': 'Destination folder'});
     FOLDERS.forEach(function (f) { if (f.label !== e.folder) sel.appendChild(el('option', {value: f.path, text: f.label})); });
@@ -1139,7 +1140,6 @@ function init() {
   renderHero();
   renderOverview();
   renderDuplicates();
-  renderMerge();
   buildLibraryControls();
   renderLibrary();
   renderOutside();
@@ -1148,7 +1148,6 @@ function init() {
   wireNav();
   $('search').addEventListener('input', function (e) {
     query = e.target.value.toLowerCase(); shown = 100; renderLibrary();
-    if (query && location.hash !== '#library') document.getElementById('library').scrollIntoView();
   });
   $('live-refresh').onclick = function () { refreshLive(); refreshMetrics(); };
   $('auto').onclick = function () { setAuto($('auto').getAttribute('aria-pressed') !== 'true'); };

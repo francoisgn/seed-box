@@ -86,7 +86,7 @@ def log_removals(log, limit=50):
     return out[-limit:]
 
 
-def gather(client, events=30, cfg=None, errors_kept=20):
+def gather(client, events=30, cfg=None, errors_kept=30):
     """Snapshot from a QbtClient: states, busy torrents, disk queue, recent events, jobs."""
     torrents = client.torrents()
     server = (client.maindata() or {}).get("server_state", {})
