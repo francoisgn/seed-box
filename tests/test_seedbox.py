@@ -2,6 +2,7 @@ import contextlib
 import io
 import json
 import os
+import re
 import tempfile
 import unittest
 from datetime import datetime
@@ -348,6 +349,10 @@ class Pipeline(unittest.TestCase):
         with open(os.path.join(out, "index.html"), encoding="utf-8") as handle:
             page = handle.read()
         self.assertNotIn("</script><b>", page)
+        # Every placeholder filled, the rest of the page intact.
+        self.assertEqual(re.findall(r"@(favicon|css|flag|nav|check|logo|range|version|data|history|js)@", page), [])
+        self.assertIn('<nav class="rail"', page)
+        self.assertIn("family=Inconsolata:wght@400", page)
         self.assertNotIn("/secret/path", page)
         with open(os.path.join(out, "snapshot.json"), encoding="utf-8") as handle:
             self.assertEqual(json.load(handle)["entries"][0]["path"], "/secret/path")

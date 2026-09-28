@@ -70,8 +70,9 @@ def _check_destination(cfg, local):
         raise ActionError("destination must be inside a library root")
     if _in_link_dir(cfg, local):
         raise ActionError("destination is a cross-seed link folder")
-    if not os.path.isdir(local):
-        raise ActionError(f"destination folder does not exist: {local}")
+    # qBittorrent creates a missing destination; its parent must exist.
+    if not os.path.isdir(local) and not os.path.isdir(os.path.dirname(local)):
+        raise ActionError(f"destination folder and its parent do not exist: {local}")
     return unmap_path(cfg, local)
 
 

@@ -44,6 +44,8 @@ PGID=
 TZ=Europe/Paris
 # Host path mounted read-only as /media: common parent of library and downloads.
 MEDIA_ROOT=/srv/media
+# Optional: cross-seed's config folder (holds cross-seed.db), mounted read-only.
+# CROSS_SEED_DIR=/srv/docker/cross-seed
 SEEDBOX_PORT=8080
 # Compose template: empty = compose.example.yaml of this checkout.
 COMPOSE_TEMPLATE=

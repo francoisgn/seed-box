@@ -141,6 +141,10 @@ function statusBadge(e) {
   var c = COVER[e.coverage] || COVER.none;
   return el('span', {'class': 'badge ' + c[0], text: c[1]});
 }
+var SEARCH = {
+  absent: ['warn', 'searched, not there: upload opportunity'], other_release: ['warn', 'only another release there'],
+  found: ['info', 'match found, not in qBittorrent'], unsearched: ['', 'not searched yet']
+};
 function isProblem(i) { return i.code !== 'versions' && i.code !== 'episodes'; }
 function isDup(i) { return i.code === 'same_tracker' || i.code === 'versions' || i.code === 'episodes'; }
 function stateGroup(s) {
@@ -431,10 +435,31 @@ function renderOverview() {
 
   kpi($('k-library'), 'Library', 'disk', S.entries, 'entries', bytes(S.size) + ' · ' + FOLDERS.length + ' folders');
   kpi($('k-uploaded'), 'Uploaded', 'up', fix(S.uploaded / TIB, 2), 'TiB', S.torrents + ' torrents, ' + S.cross_seed_torrents + ' from cross-seed');
-  kpi($('k-problems'), 'Problems', 'warn', S.problems, 'entries', 'Stopped, failed matches, errors, missing extras',
+  kpi($('k-problems'), 'Problems', 'warn', S.problems, 'entries', 'Stopped, failed matches, tracker errors, missing extras, redundant uploads, lone films',
     function () { setFilter('problems'); location.hash = '#library'; });
   kpi($('k-dups'), 'Duplicates', 'duplicates', S.duplicates, 'entries', D.duplicates.length + ' groups: same tracker, versions, episodes',
     function () { location.hash = '#duplicates'; });
+  renderErrorsTile();
+  var sr = D.search;
+  if (sr) {
+    kpi($('k-opportunity'), 'Upload opportunities', 'up', sr.opportunity, 'entries',
+      'cross-seed searched every tracker they miss: nothing there', function () { setFilter('opportunity'); location.hash = '#library'; });
+    kpi($('k-unsearched'), 'Not searched yet', 'search', sr.unsearched + sr.not_indexed, 'entries',
+      sr.unsearched + ' waiting for cross-seed · ' + sr.not_indexed + ' outside its data folders', function () { setFilter('unsearched'); location.hash = '#library'; });
+  } else {
+    kpi($('k-opportunity'), 'Upload opportunities', 'up', '—', '', 'cross-seed database not mounted');
+    kpi($('k-unsearched'), 'Not searched yet', 'search', '—', '', 'cross-seed database not mounted');
+  }
+  var ix = $('k-indexers'); clear(ix);
+  ix.appendChild(el('div', {'class': 'label'}, [icon('activity', 'sm'), 'cross-seed indexers']));
+  var list = el('div', {'class': 'chips', style: 'margin-top:8px'});
+  ((D.cross_seed && D.cross_seed.indexers) || []).forEach(function (i) {
+    var okState = i.status === 'OK' || !i.status;
+    list.appendChild(el('span', {'class': 'badge ' + (okState ? 'ok' : 'warn'), title: i.status}, [(i.name || i.key) + ': ' + (i.status || 'ok').toLowerCase().replace('_', ' ')]));
+  });
+  if (!list.firstChild) list.appendChild(el('span', {'class': 'foot', text: 'cross-seed database not mounted'}));
+  ix.appendChild(list);
+  ix.appendChild(el('div', {'class': 'foot', style: 'margin-top:8px', text: 'Rate limited: searches on hold until the tracker allows again'}));
 
   var parts = {everywhere: 0, partial: 0, incomplete: 0, none: 0};
   D.entries.forEach(function (e) { parts[e.status === 'incomplete' ? 'incomplete' : e.coverage]++; });
@@ -487,6 +512,51 @@ function renderOverview() {
     xFmt: function (x) { return new Date(x).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}); },
     tipFmt: function (x) { return new Date(x).toLocaleString(); }
   });
+}
+
+function renderErrorsTile() {
+  var box = $('k-errors'), hashes = S.error_torrents || [];
+  kpi(box, 'Torrents in error', 'warn', hashes.length, 'torrents', 'Deleted by the tracker, tracker errors, failed matches, missing files');
+  if (hashes.length) box.querySelector('.value').style.color = C.ko;
+  box.appendChild(dropList(hashes.map(function (h) { return BYHASH[h]; }).filter(Boolean), function (t) {
+    var issue = t.issues[0] || {};
+    return el('div', {'class': 'item'}, [el('span', {'class': 'badge ko', text: (issue.code || t.state).replace('_', ' ')}),
+      el('span', {'class': 'name', title: t.name + '\n' + (issue.text || ''), text: t.name}),
+      el('button', {'class': 'btn sm danger', type: 'button', title: 'Remove', 'aria-label': 'Remove', onclick: function () {
+        confirmAct('remove', [t.hash], 'Remove this torrent?', t.name + ' on ' + (TNAME[t.tracker] || t.tracker) + '. ' + (issue.text || '') + ' The library file is never touched.');
+      }}, [icon('remove', 'sm')])]);
+  }));
+}
+
+// ---------- regroup plan
+function renderMerge() {
+  var box = $('merge'), m = D.merge;
+  if (!m) { box.hidden = true; return; }
+  clear(box);
+  box.appendChild(el('div', {'class': 'card-head'}, [icon('move', 'sm'), el('h3', {text: 'Regroup ' + m.from.join(' + ') + ' into ' + m.into})]));
+  box.appendChild(el('p', {'class': 'muted', style: 'margin:0 0 16px',
+    text: 'Same volume: qBittorrent renames, nothing is copied, and cross-seed hardlinks stay valid. Other folders are not touched.'}));
+  var grid = el('div', {'class': 'grid'});
+  var left = el('div', {'class': 'c6'}, [el('div', {'class': 'kpi'}, [el('div', {'class': 'label', text: 'With a library torrent: moved by qBittorrent'}),
+    el('div', {'class': 'value'}, [String(m.torrents.length), el('small', {text: 'torrents'})])])]);
+  if (m.torrents.length) {
+    left.appendChild(el('button', {'class': 'btn filled', type: 'button', style: 'margin-top:16px', onclick: function () {
+      confirmDialog('Move ' + m.torrents.length + ' torrents to ' + m.into + '?',
+        'qBittorrent moves them one at a time; follow them in the queued jobs tile.', 'Move')
+        .then(function () { return act('move', m.torrents, {location: m.into_path}, 'Regroup'); }, function () {});
+    }}, [icon('move', 'sm'), 'Move ' + m.torrents.length + ' torrents']));
+  }
+  var right = el('div', {'class': 'c6'}, [el('div', {'class': 'kpi'}, [el('div', {'class': 'label', text: 'Without a library torrent: plain files'}),
+    el('div', {'class': 'value'}, [String(m.files.length), el('small', {text: 'entries'})])])]);
+  if (m.files.length) {
+    right.appendChild(el('div', {'class': 'cell-flex', style: 'margin:16px 0 8px;justify-content:space-between;flex-wrap:wrap'}, [
+      el('span', {'class': 'muted small', text: 'Run on the NAS from the media share root (the folder holding films/), after the qBittorrent moves:'}),
+      el('button', {'class': 'btn sm', type: 'button', onclick: function () { navigator.clipboard.writeText(m.script).then(function () { toast('Script copied.'); }); }},
+        [icon('copy', 'sm'), 'Copy script'])]));
+    right.appendChild(el('div', {'class': 'cmd', style: 'max-height:160px;overflow:auto;align-items:flex-start'}, [el('code', {text: m.script})]));
+  }
+  grid.appendChild(left); grid.appendChild(right);
+  box.appendChild(grid);
 }
 
 // ---------- live: activity, jobs, rechecks, logs
@@ -664,7 +734,10 @@ function renderDuplicates() {
           el('span', {'class': 't', title: e.name, text: short(e.name.split('/').pop(), 70)})]);
       }));
     } else {
-      detail = el('div', {'class': 'muted', text: 'Episodes: ' + g.episodes.join(', ')});
+      detail = el('div', {}, Object.keys(g.episodes).map(function (ep) {
+        return el('div', {style: 'margin:4px 0'}, [el('span', {'class': 'badge', text: ep}),
+          el('div', {'class': 'path'}, g.episodes[ep].map(function (f) { return el('div', {text: f}); }))]);
+      }));
     }
     var kindBadge = {same_tracker: ['ko', 'Same tracker'], versions: ['warn', 'Versions'], episodes: ['warn', 'Episodes']}[g.kind];
     tb.appendChild(el('tr', {}, [el('td', {}, [el('span', {'class': 'badge ' + kindBadge[0], text: kindBadge[1]})]),
@@ -695,7 +768,9 @@ var FILTERS = [
   ['none', 'On disk, not seeded', function (e) { return e.coverage === 'none'; }],
   ['incomplete', 'Downloading', function (e) { return e.status === 'incomplete'; }],
   ['problems', 'Problems', function (e) { return e._problems > 0; }],
-  ['duplicates', 'Duplicates', function (e) { return e._dup; }]
+  ['duplicates', 'Duplicates', function (e) { return e._dup; }],
+  ['opportunity', 'Upload opportunity', function (e) { return e.search_state === 'opportunity'; }],
+  ['unsearched', 'Not searched yet', function (e) { return e.search_state === 'unsearched' || e.search_state === 'not_indexed'; }]
 ];
 function setFilter(f) {
   filter = f; shown = 100;
@@ -771,7 +846,8 @@ function entryDetail(e) {
       var kind = isProblem(i) ? (i.code === 'same_tracker' ? 'warn' : 'ko') : 'warn';
       var t = i.torrent && BYHASH[i.torrent];
       list.appendChild(el('div', {'class': 'issue'}, [el('span', {'class': 'badge ' + kind}, [icon(kind === 'ko' ? 'warn' : 'info', 'sm'), i.code.replace('_', ' ')]),
-        el('div', {'class': 'txt'}, [i.text, t ? el('div', {'class': 'faint small', text: (TNAME[t.tracker] || t.tracker) + ' · ' + t.name}) : null]),
+        el('div', {'class': 'txt'}, [i.text, t ? el('div', {'class': 'faint small', text: (TNAME[t.tracker] || t.tracker) + ' · ' + t.name}) : null,
+          i.files ? el('div', {'class': 'path'}, Object.keys(i.files).map(function (ep) { return el('div', {text: ep + ': ' + i.files[ep].join(' | ')}); })) : null]),
         el('div', {'class': 'chips'}, (i.fixes || []).map(function (f) { return fixButton(f, i, e); }))]));
     });
     box.appendChild(list);
@@ -796,7 +872,20 @@ function entryDetail(e) {
       el('th', {text: 'Tracker'}), el('th', {text: 'State'}), el('th', {text: 'Torrent'}), el('th', {text: 'Where'}),
       el('th', {'class': 'num', text: 'Seeds / leechers'}), el('th', {'class': 'num', text: 'Ratio'}), el('th', {'class': 'num', text: 'Actions'})])]), tb])]));
   }
-  var rel = e.folder + '/' + e.name.split('/').pop();
+  if (e.search && Object.keys(e.search).length) {
+    var srch = el('div', {'class': 'chips'});
+    Object.keys(e.search).forEach(function (k) {
+      var v = e.search[k], meta = SEARCH[v.verdict] || ['', v.verdict];
+      srch.appendChild(el('span', {'class': 'badge ' + meta[0], title: v.searched ? 'Searched ' + new Date(v.searched).toLocaleString() : 'Never searched'},
+        [(TNAME[k] || k) + ': ' + meta[1] + (v.searched ? ' · ' + ago(v.searched) : '')]));
+    });
+    box.appendChild(el('div', {}, [el('div', {'class': 'muted small', style: 'margin-bottom:8px', text: 'cross-seed on the trackers it is missing on'}), srch]));
+  } else if (e.search_state === 'not_indexed') {
+    box.appendChild(el('div', {'class': 'muted small', text: 'Not in cross-seed data folders: never searched.'}));
+  }
+  if (D.merge && D.merge.files.indexOf(e._i) >= 0) {
+    box.appendChild(el('div', {'class': 'muted small', text: 'No library torrent: moved by the script of the regroup card.'}));
+  }
   if (e._main.length) {
     var sel = el('select', {'class': 'select', 'aria-label': 'Destination folder'});
     FOLDERS.forEach(function (f) { if (f.label !== e.folder) sel.appendChild(el('option', {value: f.path, text: f.label})); });
@@ -807,12 +896,6 @@ function entryDetail(e) {
         confirmDialog('Move to ' + target.label + '?', e.name + ' (' + bytes(e.size) + '). Cross-seed links stay valid.', 'Move')
           .then(function () { return act('move', e._main, {location: target.path}); }, function () {});
       }}, [icon('move', 'sm'), 'Move'])]));
-  } else {
-    var cmd = 'mv -n "' + rel + '" "' + (FOLDERS[0] ? FOLDERS[0].label : 'films/archives') + '/"';
-    box.appendChild(el('div', {}, [el('div', {'class': 'muted small', style: 'margin-bottom:8px', text: 'No library torrent: qBittorrent cannot move it. From the media share root:'}),
-      el('div', {'class': 'cmd'}, [el('code', {text: cmd}), el('button', {'class': 'btn sm', type: 'button', onclick: function (ev) {
-        ev.stopPropagation(); navigator.clipboard.writeText(cmd).then(function () { toast('Command copied.'); });
-      }}, [icon('copy', 'sm'), 'Copy'])])]));
   }
   return box;
 }
@@ -911,6 +994,7 @@ function init() {
   renderHero();
   renderOverview();
   renderDuplicates();
+  renderMerge();
   buildLibraryControls();
   renderLibrary();
   renderOutside();

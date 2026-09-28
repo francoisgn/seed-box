@@ -11,11 +11,11 @@
   <circle cx="58" cy="18.5" r="2" fill="#f28b82"/>
   <circle cx="64.5" cy="18.5" r="2" fill="#fde293"/>
   <circle cx="71" cy="18.5" r="2" fill="#81c995"/>
-  <g font-family="ui-monospace, SFMono-Regular, Menlo, monospace" font-size="7">
+  <g font-family="Inconsolata, ui-monospace, Menlo, monospace" font-size="7">
     <text x="57" y="35" fill="#81c995">$ <tspan fill="#e6edf3">seedbox status</tspan></text>
     <text x="57" y="46" fill="#8ab4f8">✓ <tspan fill="#9da7b3">452 entries, 3 trackers</tspan></text>
     <text x="57" y="57" fill="#fde293">↻ <tspan fill="#9da7b3">recheck 1/8 · 80.7 %</tspan></text>
-    <text x="57" y="68" fill="#81c995">⇄ <tspan fill="#9da7b3">moving to archives…</tspan></text>
+    <text x="57" y="68" fill="#81c995">⇄ <tspan fill="#9da7b3">moving to films/films…</tspan></text>
     <text x="57" y="79" fill="#f28b82">✗ <tspan fill="#9da7b3">2 duplicates on tr4ker</tspan></text>
     <text x="57" y="92" fill="#81c995">$ </text>
   </g>

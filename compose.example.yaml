@@ -21,5 +21,7 @@ services:
       - ./secrets:/run/secrets:ro
       - ${MEDIA_ROOT:?set MEDIA_ROOT in .env}:/media:ro
       - ./data:/data
+      # Optional: cross-seed's config folder, read-only, for its search history.
+      - ${CROSS_SEED_DIR:-./cross-seed}:/cross-seed:ro
     ports:
       - "${SEEDBOX_PORT:-8080}:8080"

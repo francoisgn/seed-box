@@ -13,10 +13,11 @@ torrents' add dates.
 """
 
 import os
+import re
 import time
 from datetime import UTC, date, datetime, timedelta
 
-from seedbox import library, prowlarr, titles
+from seedbox import crossseed, library, prowlarr, titles
 from seedbox import trackers as trk
 from seedbox.api import ApiError
 from seedbox.config import fingerprint, map_path, unmap_path
@@ -28,21 +29,34 @@ DOWNLOADING = ("downloading", "stalledDL", "metaDL", "forcedDL", "queuedDL", "fo
 TIMELINE_DAYS = 120
 
 
+# Messages trackers send for a torrent they deleted (dupe, trumped, nuked).
+UNREGISTERED = re.compile(
+    r"(?i)unregistered|not registered|torrent (?:not found|does not exist|not exist|(?:has been )?(?:deleted|removed))"
+    r"|info_?hash not found|trumped|\bdupe\b|nuked"
+)
+TRACKER_NOT_WORKING = 4
+
+
 def _torrent_trackers(client, torrent, aliases):
-    # The current tracker is in the list already; ask for all only when none works.
+    """(tracker keys, messages of trackers not working). The working tracker is in
+    the torrent already; the list is asked for only when none works."""
     key = trk.key_for_url(torrent.get("tracker", ""), aliases)
     if key:
-        return [key]
-    keys = []
+        return [key], []
+    keys, errors = [], []
     try:
         items = client.trackers(torrent["hash"])
     except ApiError:
         items = []
     for item in items:
         key = trk.key_for_url(item.get("url", ""), aliases)
-        if key and key not in keys:
+        if not key:
+            continue
+        if key not in keys:
             keys.append(key)
-    return keys
+        if item.get("status") == TRACKER_NOT_WORKING:
+            errors.append({"tracker": key, "msg": (item.get("msg") or "").strip()})
+    return keys, errors
 
 
 def _stat_any(path):
@@ -99,7 +113,7 @@ def _is_media_name(cfg, name):
     return os.path.splitext(name)[1].lower() in cfg.media_ext
 
 
-def _torrent_record(cfg, torrent, keys, files):
+def _torrent_record(cfg, torrent, keys, files, tracker_errors=()):
     state = torrent.get("state", "")
     progress = torrent.get("progress") or 0
     left = torrent.get("amount_left") or 0
@@ -127,6 +141,20 @@ def _torrent_record(cfg, torrent, keys, files):
         issues.append({"code": "stopped", "text": "stopped while complete: not seeding", "fixes": ["start"]})
     if state in ("error", "missingFiles"):
         issues.append({"code": state, "text": f"qBittorrent reports {state}", "fixes": ["recheck"]})
+    for err in tracker_errors:
+        if UNREGISTERED.search(err["msg"]):
+            issues.append(
+                {
+                    "code": "unregistered",
+                    "text": f"{err['tracker']} deleted this torrent ({err['msg']}): remove it; the content is "
+                    "searched again later, or re-add it by hand",
+                    "fixes": ["remove"],
+                }
+            )
+        else:
+            issues.append(
+                {"code": "tracker_error", "text": f"{err['tracker']}: {err['msg'] or 'not working'}", "fixes": []}
+            )
     if state in DOWNLOADING and extras and not media_missing:
         issues.append(
             {
@@ -164,9 +192,9 @@ def correlate(cfg, client, entries, inode_index, progress=lambda msg: None):
     torrents = client.torrents()
     for position, torrent in enumerate(torrents, 1):
         progress(f"Correlating torrents {position}/{len(torrents)}")
-        keys = _torrent_trackers(client, torrent, cfg.tracker_aliases)
+        keys, tracker_errors = _torrent_trackers(client, torrent, cfg.tracker_aliases)
         files = _torrent_files(cfg, client, torrent)
-        record = _torrent_record(cfg, torrent, keys, files)
+        record = _torrent_record(cfg, torrent, keys, files, tracker_errors)
         records.append(record)
 
         targets, found = set(), 0
@@ -307,8 +335,9 @@ def diagnose(entries, records, target_keys):
             entry.issues.append(
                 {
                     "code": "episodes",
-                    "text": "episodes present in several versions: " + ", ".join(entry.duplicate_episodes),
+                    "text": "several files for the same episode: " + ", ".join(entry.duplicate_episodes),
                     "fixes": [],
+                    "files": entry.duplicate_episodes,
                 }
             )
             duplicates.append(
@@ -344,6 +373,94 @@ def diagnose(entries, records, target_keys):
             }
         )
     return duplicates
+
+
+def search_status(cfg, entries, xs, target):
+    """Per entry, for each target tracker it is missing on: has cross-seed searched there?
+
+    States: complete (on every target tracker), opportunity (searched everywhere
+    it is missing, nothing matching: upload it), found (a match exists that is
+    not in qBittorrent), unsearched, not_indexed (outside cross-seed's dataDirs).
+    """
+    counts = {"complete": 0, "opportunity": 0, "found": 0, "unsearched": 0, "not_indexed": 0}
+    for entry in entries:
+        missing = sorted(set(target) - set(entry.trackers))
+        if not missing:
+            entry.search_state = "complete"
+        else:
+            title = xs["titles"].get(unmap_path(cfg, entry.path))
+            if title is None:
+                entry.search_state = "not_indexed"
+            else:
+                slots = xs["searchees"].get(title, {})
+                for key in missing:
+                    slot = slots.get(key)
+                    entry.search[key] = {
+                        "verdict": crossseed.verdict(slot),
+                        "searched": (slot or {}).get("searched", 0),
+                    }
+                verdicts = {v["verdict"] for v in entry.search.values()}
+                if "unsearched" in verdicts:
+                    entry.search_state = "unsearched"
+                elif "found" in verdicts:
+                    entry.search_state = "found"
+                else:
+                    entry.search_state = "opportunity"
+        counts[entry.search_state] += 1
+    return counts
+
+
+def merge_plan(cfg, entries, records):
+    """Regroup plan: content of merge_from folders into merge_into.
+
+    Entries with a library torrent move through qBittorrent (hardlinks of
+    cross-seed follow, nothing to copy on one volume); the others are plain
+    files: a shell script for the media share does them.
+    """
+    if not cfg.merge_into or not cfg.merge_from:
+        return None
+    base = os.path.dirname(cfg.roots[0])
+    target = os.path.join(base, cfg.merge_into)
+    torrents, files = [], []
+    for i, entry in enumerate(entries):
+        if entry.folder not in cfg.merge_from:
+            continue
+        main = [records[t]["hash"] for t in entry.torrents if not records[t]["link"]]
+        if main:
+            torrents.extend(h for h in main if h not in torrents)
+        else:
+            files.append(i)
+    rel = [os.path.relpath(entries[i].path, base) for i in files]
+    extra = [f for i in files if entries[i].kind == "file" for f in _siblings_rel(entries[i], base)]
+    lines = [f'mkdir -p "{cfg.merge_into}"'] + [f'mv -n -- "{p}" "{cfg.merge_into}/"' for p in rel + extra]
+    return {
+        "into": cfg.merge_into,
+        "into_path": target,
+        "into_qbt": unmap_path(cfg, target),
+        "from": cfg.merge_from,
+        "torrents": torrents,
+        "files": files,
+        "script": "\n".join(lines),
+    }
+
+
+def _siblings_rel(entry, base):
+    """Sidecars and other parts of a file entry, relative to base (the main file excluded)."""
+    folder = os.path.dirname(entry.path)
+    stem = os.path.splitext(os.path.basename(entry.path))[0]
+    key = titles.part_key(os.path.basename(entry.path))
+    out = []
+    try:
+        names = sorted(os.listdir(folder))
+    except OSError:
+        return out
+    for name in names:
+        full = os.path.join(folder, name)
+        if full == entry.path or not os.path.isfile(full):
+            continue
+        if name.startswith(stem + ".") or (key and titles.part_key(name) == key):
+            out.append(os.path.relpath(full, base))
+    return out
 
 
 def timeline(entries, records, rows):
@@ -401,6 +518,8 @@ def folders(cfg, entries):
         local = os.path.dirname(e.path)
         if _under_roots(cfg, local):
             seen[local] = seen.get(local, 0) + 1
+    if cfg.merge_into and cfg.roots:
+        seen.setdefault(os.path.join(os.path.dirname(cfg.roots[0]), cfg.merge_into), 0)
     return [
         {"path": p, "qbt": unmap_path(cfg, p), "label": _label(cfg, p), "entries": n}
         for p, n in sorted(seen.items(), key=lambda kv: kv[0].lower())
@@ -456,9 +575,25 @@ def run(cfg, log, progress=lambda msg: None):
     target = {k for k, v in indexers.items() if v.get("enabled")} or {r["key"] for r in rows}
     duplicates = diagnose(entries, records, target)
 
+    progress("Reading cross-seed history")
+    indexer_keys = {v["name"].lower(): k for k, v in indexers.items()}
+    xs = crossseed.read(cfg.cross_seed_db, cfg.tracker_aliases, indexer_keys)
+    search = search_status(cfg, entries, xs, target) if xs else None
+    if xs:
+        for idx in xs["indexers"]:
+            if idx["status"] and idx["status"] != "OK":
+                warn(f"cross-seed: indexer {idx['name']} is {idx['status']}, its searches are on hold")
+
     counts = {s: sum(1 for e in entries if e.status == s) for s in ("seeded", "incomplete", "orphan")}
     coverage = {c: sum(1 for e in entries if e.coverage == c) for c in ("everywhere", "partial", "none")}
     problems = sum(1 for e in entries if any(i["code"] not in ("versions", "episodes") for i in e.issues))
+    errors = [
+        r["hash"]
+        for r in records
+        if any(
+            i["code"] in ("unregistered", "tracker_error", "error", "missingFiles", "failed_match") for i in r["issues"]
+        )
+    ]
     dup_entries = {i for d in duplicates for i in d["entries"]}
     states = {}
     for r in records:
@@ -473,6 +608,7 @@ def run(cfg, log, progress=lambda msg: None):
             **counts,
             **coverage,
             "problems": problems,
+            "error_torrents": errors,
             "duplicates": len(dup_entries),
             "coverage_pct": round((counts["seeded"] + counts["incomplete"]) / max(total, 1) * 100, 2),
             "size": sum(e.size for e in entries),
@@ -500,9 +636,14 @@ def run(cfg, log, progress=lambda msg: None):
                 "uploaded": int(e.uploaded),
                 "issues": e.issues,
                 "resolution": e.resolution,
+                "search": e.search,
+                "search_state": e.search_state,
             }
             for e in entries
         ],
+        "search": search,
+        "cross_seed": {"indexers": xs["indexers"]} if xs else None,
+        "merge": merge_plan(cfg, entries, records),
         "torrents": records,
         "duplicates": duplicates,
         "unmatched": unmatched,

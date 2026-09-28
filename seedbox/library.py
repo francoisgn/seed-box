@@ -29,7 +29,7 @@ class Entry:
     size: int = 0
     files: int = 0
     media_inodes: set = field(default_factory=set)
-    duplicate_episodes: list = field(default_factory=list)
+    duplicate_episodes: dict = field(default_factory=dict)  # "S08E01" -> file names
     # Only film of a grouping folder ("archives" holding one file): fine while
     # moving or filling a folder, a problem if it lasts.
     lone: bool = False
@@ -42,6 +42,9 @@ class Entry:
     coverage: str = "none"
     title_key: str = ""
     resolution: str = ""
+    # Filled by collect.search_status(): cross-seed history on the trackers missing.
+    search: dict = field(default_factory=dict)
+    search_state: str = ""
 
     @property
     def folder(self):
@@ -172,7 +175,7 @@ def _duplicate_episodes(names):
         ep = titles.parse(name)["episode"]
         if ep:
             seen.setdefault(ep, []).append(name)
-    return sorted(ep for ep, found in seen.items() if len(found) > 1)
+    return {ep: sorted(found) for ep, found in sorted(seen.items()) if len(found) > 1}
 
 
 def build(cfg, warn=lambda msg: None):

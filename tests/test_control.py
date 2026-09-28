@@ -4,13 +4,14 @@ import http.client
 import http.server
 import json
 import os
+import sqlite3
 import tempfile
 import threading
 import time
 import unittest
 from unittest import mock
 
-from seedbox import actions, cli, collect, config, library, metrics, titles
+from seedbox import actions, cli, collect, config, crossseed, library, metrics, titles
 
 A = "a" * 40
 B = "b" * 40
@@ -94,7 +95,7 @@ class Granularity(unittest.TestCase):
         alpha = by["incoming/Alpha.2016.1080p.mkv"]
         self.assertEqual((alpha.kind, alpha.files, alpha.size, alpha.folder), ("file", 2, 101, "films/incoming"))
         self.assertEqual(by["incoming/Gamma.2005.XviD-CD1.avi"].files, 2)  # both parts, not the sample
-        self.assertEqual(by["Show/season-01"].duplicate_episodes, ["S01E02"])
+        self.assertEqual(list(by["Show/season-01"].duplicate_episodes), ["S01E02"])
         self.assertTrue(by["archives/Alpha.2016.2160p.mkv"].lone)
         self.assertFalse(alpha.lone)
 
@@ -240,6 +241,90 @@ class Diagnosis(unittest.TestCase):
         self.qbt._torrents.append(library_torrent)
         with self.assertRaises(actions.ActionError):
             actions.run(self.cfg, self.qbt, {"action": "remove", "hashes": ["f" * 40], "delete_files": True})
+
+
+class CrossSeed(unittest.TestCase):
+    """Search history: opportunity vs not searched yet; regroup plan; tracker-deleted torrents."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        t = self.tmp.name
+        self.media = os.path.join(t, "media")
+        self.films = os.path.join(self.media, "films")
+        for name in ("Split.2017.mkv", "Never.2020.mkv", "Seeded.2019.mkv", "Other.2018.mkv"):
+            touch(os.path.join(self.films, "archives", name))
+        touch(os.path.join(self.films, "incoming", "New.2024.mkv"))
+        touch(os.path.join(self.films, "incoming", "New.2024.nfo"), 1)
+        self.db = os.path.join(t, "cross-seed.db")
+        db = sqlite3.connect(self.db)
+        db.executescript(
+            """
+            CREATE TABLE indexer (id integer primary key, name text, url text, active boolean, status text);
+            CREATE TABLE searchee (id integer primary key, name text, first_searched integer, last_searched integer);
+            CREATE TABLE timestamp (searchee_id integer, indexer_id integer, first_searched integer, last_searched integer);
+            CREATE TABLE decision (id integer primary key, searchee_id integer, guid text, info_hash text, decision text,
+                first_seen integer, last_seen integer);
+            CREATE TABLE data (path text primary key, title text);
+            INSERT INTO indexer VALUES (1, 'Alpha', 'http://p/1/api', 1, 'OK'), (2, 'Beta', 'http://p/2/api', 1, 'RATE_LIMITED');
+            INSERT INTO searchee VALUES (1, 'Split.2017.mkv', null, null), (2, 'Other.2018.mkv', null, null);
+            INSERT INTO timestamp VALUES (1, 1, 1, 1000), (1, 2, 1, 2000), (2, 1, 1, 3000);
+            INSERT INTO decision VALUES (1, 2, 'https://beta.example/api/torrents/x/download?apikey=SECRET', 'h', 'PARTIAL_SIZE_MISMATCH', 1, 1);
+            INSERT INTO data VALUES ('/video/films/archives/Split.2017.mkv', 'Split.2017.mkv'),
+                ('/video/films/archives/Never.2020.mkv', 'Never.2020.mkv'), ('/video/films/archives/Other.2018.mkv', 'Other.2018.mkv');
+            """
+        )
+        db.commit()
+        db.close()
+        self.cfg = load_cfg([self.films], os.path.join(t, "out"), path_map={"/video": self.media})
+        self.cfg.merge_from, self.cfg.merge_into = ["films/archives", "films/incoming"], "films/films"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_search_status_and_merge(self):
+        xs = crossseed.read(self.db, {}, {"alpha": "alpha.example", "beta": "beta.example"})
+        self.assertNotIn("SECRET", repr(xs))
+        entries, _ = library.build(self.cfg)
+        by = {os.path.basename(e.path): e for e in entries}
+        by["Seeded.2019.mkv"].trackers = ["alpha.example", "beta.example"]
+        counts = collect.search_status(self.cfg, entries, xs, {"alpha.example", "beta.example"})
+        self.assertEqual(by["Split.2017.mkv"].search_state, "opportunity")
+        self.assertEqual(by["Other.2018.mkv"].search["beta.example"]["verdict"], "other_release")
+        self.assertEqual(by["Other.2018.mkv"].search_state, "opportunity")
+        self.assertEqual(by["Never.2020.mkv"].search_state, "unsearched")
+        self.assertEqual(by["New.2024.mkv"].search_state, "not_indexed")
+        self.assertEqual(by["Seeded.2019.mkv"].search_state, "complete")
+        self.assertEqual(counts["opportunity"], 2)
+        self.assertEqual([i["status"] for i in xs["indexers"]], ["OK", "RATE_LIMITED"])
+
+        records = [{"hash": A, "link": False}, {"hash": B, "link": True}]
+        by["Split.2017.mkv"].torrents = [0]
+        by["Other.2018.mkv"].torrents = [1]
+        plan = collect.merge_plan(self.cfg, entries, records)
+        self.assertEqual(plan["torrents"], [A])
+        self.assertEqual(plan["into_qbt"], "/video/films/films")
+        self.assertIn('mv -n -- "films/incoming/New.2024.nfo" "films/films/"', plan["script"])
+        self.assertIn('mv -n -- "films/archives/Other.2018.mkv" "films/films/"', plan["script"])
+        self.assertNotIn("Split", plan["script"])
+        # The new folder does not exist yet: qBittorrent creates it.
+        self.cfg.actions = True
+        qbt = FakeQbt([{"hash": A, "name": "Split", "save_path": "/video/films/archives"}], {})
+        actions.run(self.cfg, qbt, {"action": "move", "hashes": [A], "location": plan["into_path"]})
+        self.assertEqual(qbt.calls[-1], ("move", [A], "/video/films/films"))
+
+    def test_unregistered(self):
+        torrent = {"hash": A, "name": "Dupe", "state": "stalledUP", "tracker": ""}
+        qbt = FakeQbt([torrent], {})
+        qbt.trackers = lambda h: [
+            {"url": "** [DHT] **", "status": 2, "msg": ""},
+            {"url": "https://t.alpha.example/announce", "status": 4, "msg": "Unregistered torrent"},
+        ]
+        keys, errors = collect._torrent_trackers(qbt, torrent, {})
+        self.assertEqual(keys, ["alpha.example"])
+        record = collect._torrent_record(self.cfg, torrent, keys, [], errors)
+        self.assertEqual([i["code"] for i in record["issues"]], ["unregistered"])
+        dns = collect._torrent_record(self.cfg, torrent, keys, [], [{"tracker": "x", "msg": "Host not found"}])
+        self.assertEqual([i["code"] for i in dns["issues"]], ["tracker_error"])
 
 
 class Metrics(unittest.TestCase):

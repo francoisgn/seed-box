@@ -1,6 +1,8 @@
 """Self-contained HTML dashboard: data embedded as JSON, rendered client-side.
 
-The page works offline (opened as a file, it shows the last collection); served
+The page works offline (opened as a file, it shows the last collection; the
+Inconsolata font comes from Google Fonts, a system monospace replaces it
+offline); served
 by `seedbox run`, it adds live qBittorrent activity, jobs, system metrics and
 the actions. Styles, script and artwork live in seedbox/web/ and are inlined
 here, so the page is still one file. Every value is inserted with textContent,
@@ -10,10 +12,12 @@ never as HTML.
 import base64
 import json
 import os
+import re
 
 from seedbox import __version__
 
 WEB = os.path.join(os.path.dirname(__file__), "web")
+PLACEHOLDER = re.compile(r"@([a-z]+)@")
 
 NAV = [
     ("overview", "Overview", "M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"),
@@ -55,6 +59,9 @@ PAGE = """<!DOCTYPE html>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Seedbox control plane</title>
 <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,@favicon@">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inconsolata:wght@400;500;600&display=swap">
 <style>@css@</style></head><body>
 
 <nav class="rail" aria-label="Sections">
@@ -90,6 +97,10 @@ PAGE = """<!DOCTYPE html>
     <div class="card kpi c3" id="k-queue" data-live></div>
     <div class="card kpi c3" id="k-rechecks" data-live></div>
     <div class="card kpi c3" id="k-volume" data-live></div>
+    <div class="card kpi c3" id="k-errors"></div>
+    <div class="card kpi c3" id="k-opportunity"></div>
+    <div class="card kpi c3" id="k-unsearched"></div>
+    <div class="card kpi c3" id="k-indexers"></div>
 
     <div class="card c5"><div class="card-head"><h3>Library by seeding status</h3></div><div class="chart" id="c-status"></div></div>
     <div class="card c7"><div class="card-head"><h3>Coverage by tracker</h3><span class="sub muted small">share of the library each tracker seeds</span></div><div class="chart" id="c-trackers"></div></div>
@@ -122,6 +133,7 @@ PAGE = """<!DOCTYPE html>
 
 <section id="library">
   <div class="section-head"><h2>Library</h2><span class="muted" id="lib-count"></span></div>
+  <div class="card" id="merge" style="margin-bottom:24px"></div>
   <div class="card">
     <div class="chips" id="lib-chips" style="margin-bottom:16px"></div>
     <div class="chips" style="margin-bottom:8px">
@@ -206,9 +218,6 @@ def render(snap, history):
         "history": _embed(history),
         "js": _asset("app.js"),
     }
-    # One pass over the template: inserted content is never scanned again.
-    pieces = PAGE.split("@")
-    out = []
-    for i, piece in enumerate(pieces):
-        out.append(parts[piece] if i % 2 and piece in parts else (("@" + piece) if i % 2 else piece))
-    return "".join(out)
+    # One pass over the template: inserted content is never scanned again, and
+    # an "@" that is not a known placeholder (a URL) stays as is.
+    return PLACEHOLDER.sub(lambda m: parts.get(m.group(1), m.group(0)), PAGE)

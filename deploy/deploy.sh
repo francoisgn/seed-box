@@ -72,7 +72,7 @@ spin() {
 REPO_DIR=$(cd "$(dirname "$0")/.." && pwd)
 
 KEYS=" DEPLOY_HOST DEPLOY_USER DEPLOY_PORT DEPLOY_SSH_KEY DEPLOY_DIR DEPLOY_COMPOSE DEPLOY_DOCKER COMPOSE_TEMPLATE
-  SEEDBOX_TOML SEEDBOX_VERSION PUID PGID TZ MEDIA_ROOT SEEDBOX_PORT
+  SEEDBOX_TOML SEEDBOX_VERSION PUID PGID TZ MEDIA_ROOT SEEDBOX_PORT CROSS_SEED_DIR
   QBT_PASSWORD QBT_PASSWORD_CMD PROWLARR_API_KEY PROWLARR_API_KEY_CMD "
 PATH_KEYS=" DEPLOY_SSH_KEY COMPOSE_TEMPLATE SEEDBOX_TOML "
 
@@ -265,7 +265,7 @@ cp "$C_COMPOSE_TEMPLATE" "$STAGE/compose.yaml"
 cp "$C_SEEDBOX_TOML" "$STAGE/seedbox.toml"
 printf '%s' "$QBT_SECRET" >"$STAGE/secrets/qbt_password"
 printf '%s' "$PROWLARR_SECRET" >"$STAGE/secrets/prowlarr_api_key"
-for k in SEEDBOX_VERSION PUID PGID TZ MEDIA_ROOT SEEDBOX_PORT; do
+for k in SEEDBOX_VERSION PUID PGID TZ MEDIA_ROOT SEEDBOX_PORT CROSS_SEED_DIR; do
   eval "v=\$C_$k"
   case $v in *"'"* | *'
 '*) die "$k contains a quote or newline" ;; esac
@@ -282,7 +282,7 @@ fi
 # --- Deploy
 upload() {
   COPYFILE_DISABLE=1 tar --format=ustar -C "$STAGE" -cf - . |
-    rssh "umask 077 && mkdir -p $RDIR/data && tar -C $RDIR -xf - && chmod 700 $RDIR/secrets"
+    rssh "umask 077 && mkdir -p $RDIR/data $RDIR/cross-seed && tar -C $RDIR -xf - && chmod 700 $RDIR/secrets"
 }
 info "seedbox $C_SEEDBOX_VERSION -> $TARGET:$C_DEPLOY_DIR"
 spin "Upload config, secrets and compose file" upload || exit 1

@@ -76,6 +76,7 @@ errors (typos do not go unnoticed). Values are never executed, except the
 | `PUID`, `PGID` | uid/gid of the SSH user | container user |
 | `TZ` | `UTC` | container time zone, used by `[service] schedule` |
 | `MEDIA_ROOT` | *(required)* | host path mounted read-only as `/media` |
+| `CROSS_SEED_DIR` | empty | cross-seed's config folder on the host, mounted read-only as `/cross-seed`: its database tells what was searched where (upload opportunities) |
 | `SEEDBOX_PORT` | `8080` | dashboard port on the host |
 | `COMPOSE_TEMPLATE` | `compose.example.yaml` | compose file to deploy |
 

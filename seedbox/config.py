@@ -52,6 +52,13 @@ class Config:
     # Folders holding cross-seed links (path component names): torrents found
     # there are linked copies, not library content.
     link_dirs: list = field(default_factory=lambda: [".cross-seed"])
+    # Regroup plan: folders (labels like "films/incoming") whose content goes
+    # into one folder ("films/films"), shown with its moves on the dashboard.
+    merge_from: list = field(default_factory=list)
+    merge_into: str = ""
+
+    # cross-seed database, read-only (search history per tracker). Missing = off.
+    cross_seed_db: str = "/cross-seed/cross-seed.db"
 
     output_dir: str = "/data"
     csv_delimiter: str = ","
@@ -128,6 +135,9 @@ def load(path=None):
     cfg.skip_dirs = list(library.get("skip_dirs", cfg.skip_dirs))
     cfg.media_ext = [e.lower() for e in library.get("media_ext", cfg.media_ext)]
     cfg.link_dirs = list(library.get("link_dirs", cfg.link_dirs))
+    cfg.merge_from = [m.strip("/") for m in library.get("merge_from", cfg.merge_from)]
+    cfg.merge_into = library.get("merge_into", cfg.merge_into).strip("/")
+    cfg.cross_seed_db = data.get("cross_seed", {}).get("db", cfg.cross_seed_db)
 
     qbt = data.get("qbittorrent", {})
     cfg.qbt_url = qbt.get("url", cfg.qbt_url)

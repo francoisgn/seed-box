@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.9.2
+
+- cross-seed search history (its database, read-only through `CROSS_SEED_DIR`):
+  for content missing on a tracker, **upload opportunity** (searched there,
+  nothing matching, or only another release) vs **not searched yet** vs outside
+  cross-seed's data folders. Tiles, library filters, per-tracker detail, and the
+  cross-seed indexer states (rate limited…). Decision URLs carry tracker API keys:
+  only their domain is read.
+- Torrents deleted by their tracker (unregistered, dupe, trumped…) and tracker
+  errors detected; "Torrents in error" tile with remove buttons.
+- Regroup plan (`merge_from`, `merge_into`): torrents moved by qBittorrent in one
+  click, a `mv` script for the entries without a library torrent. A move may
+  target a folder that does not exist yet (qBittorrent creates it).
+- The misleading "move by hand" command on entries without a library torrent is
+  gone.
+- Episodes twice: the files of each episode are listed.
+- Font: Inconsolata (Google Fonts, system monospace offline).
+- Template filling no longer breaks on an "@" in the page (the font URL).
+
 ## 0.9.1
 
 - Volume usage: one volume seen through several bind mounts is shown once.
