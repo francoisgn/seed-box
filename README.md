@@ -63,6 +63,8 @@ reduced to their domain and merged. The dashboard flags:
 | Stopped | a torrent neither seeds nor downloads | start, recheck |
 | Missing extras | a cross-seed match waits for a `.nfo`/`.jpg` nobody seeds (files stay `.!qB`) | skip them (file priority 0) |
 | Lone film | the only film of a grouping folder: fine while moving, not as a lasting state | move it |
+| Category | torrent not in the category of its folder, cross-seed link without the link category, finished download still in the transient folder | set the matching category, or apply the category folder (qBittorrent moves it) |
+| Outside declared trackers | tracker unknown to Prowlarr (public, one-off) | clean it when done |
 | Outside the library | torrent matched to no entry: library copy deleted (only cross-seed links left), other share, missing files | shown with the reason |
 
 Moves go through qBittorrent (`setLocation`), one at a time on its side, so
@@ -166,6 +168,9 @@ the `_FILE` suffix (Docker secrets), e.g. `SEEDBOX_QBT_PASSWORD_FILE`.
 | `SEEDBOX_METRICS_INTERVAL` | `service.metrics_interval` (seconds, `0` = off) | `300` |
 | | `service.metrics_days`: metrics kept | `14` |
 | | `library.link_dirs`: cross-seed link folder names | `[".cross-seed"]` |
+| | `library.merge_from`, `library.merge_into`: regroup plan (folder labels) | none |
+| | `library.transient_dir`: folder of partial and one-off downloads | none |
+| | `cross_seed.db`, `cross_seed.link_category` | `/cross-seed/cross-seed.db`, `cross-seed-link` |
 
 ## Output
 

@@ -71,6 +71,9 @@ class QbtClient:
     def log(self):
         return self.get("/api/v2/log/main", last_known_id=-1) or []
 
+    def categories(self):
+        return self.get("/api/v2/torrents/categories") or {}
+
     def transfer(self):
         return self.get("/api/v2/transfer/info") or {}
 
@@ -101,6 +104,15 @@ class QbtClient:
         self.post(
             "/api/v2/torrents/delete",
             {"hashes": "|".join(hashes), "deleteFiles": "true" if delete_files else "false"},
+        )
+
+    def set_category(self, hashes, category):
+        self.post("/api/v2/torrents/setCategory", {"hashes": "|".join(hashes), "category": category})
+
+    def auto_management(self, hashes, enable):
+        self.post(
+            "/api/v2/torrents/setAutoManagement",
+            {"hashes": "|".join(hashes), "enable": "true" if enable else "false"},
         )
 
     def file_priority(self, torrent_hash, ids, priority):

@@ -57,6 +57,12 @@ class Config:
     merge_from: list = field(default_factory=list)
     merge_into: str = ""
 
+    # Folder of transient downloads (partial, one-off, public): finished
+    # torrents there may be removed with their files from the dashboard.
+    transient_dir: str = ""
+    # qBittorrent category of cross-seed link torrents (cross-seed linkCategory).
+    link_category: str = "cross-seed-link"
+
     # cross-seed database, read-only (search history per tracker). Missing = off.
     cross_seed_db: str = "/cross-seed/cross-seed.db"
 
@@ -137,6 +143,8 @@ def load(path=None):
     cfg.link_dirs = list(library.get("link_dirs", cfg.link_dirs))
     cfg.merge_from = [m.strip("/") for m in library.get("merge_from", cfg.merge_from)]
     cfg.merge_into = library.get("merge_into", cfg.merge_into).strip("/")
+    cfg.transient_dir = library.get("transient_dir", cfg.transient_dir).rstrip("/")
+    cfg.link_category = data.get("cross_seed", {}).get("link_category", cfg.link_category)
     cfg.cross_seed_db = data.get("cross_seed", {}).get("db", cfg.cross_seed_db)
 
     qbt = data.get("qbittorrent", {})

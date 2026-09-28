@@ -366,8 +366,10 @@ function confirmDialog(title, body, okLabel, checkbox) {
 }
 
 var ACTION_TEXT = {
-  move: 'Move', recheck: 'Recheck', start: 'Start', skip_extras: 'Skip missing extras', remove: 'Remove'
+  move: 'Move', recheck: 'Recheck', start: 'Start', skip_extras: 'Skip missing extras', remove: 'Remove',
+  set_category: 'Set category', apply_category: 'Apply category folder'
 };
+function isTransient(t) { return !!(D.transient_qbt && t && (t.content_path + '/').indexOf(D.transient_qbt + '/') === 0); }
 function act(action, hashes, extra, label) {
   if (!D.actions) { toast('Actions are disabled: set [service] actions = true.'); return Promise.resolve(); }
   if (!LIVE) { toast('Open the dashboard from seedbox run to use actions.'); return Promise.resolve(); }
@@ -379,7 +381,9 @@ function act(action, hashes, extra, label) {
 }
 function confirmAct(action, hashes, title, body, extra) {
   var linkOnly = hashes.every(function (h) { return BYHASH[h] && BYHASH[h].link; });
-  var box = action === 'remove' && linkOnly ? 'Also delete their cross-seed link files (the library copy is kept)' : null;
+  var transient = hashes.every(function (h) { return isTransient(BYHASH[h]); });
+  var box = action !== 'remove' ? null : linkOnly ? 'Also delete their cross-seed link files (the library copy is kept)'
+    : transient ? 'Also delete their files (transient download folder)' : null;
   return confirmDialog(title, body, ACTION_TEXT[action], box).then(function (checked) {
     return act(action, hashes, Object.assign({}, extra || {}, action === 'remove' ? {delete_files: checked} : {}));
   }, function () {});
@@ -440,6 +444,8 @@ function renderOverview() {
   kpi($('k-dups'), 'Duplicates', 'duplicates', S.duplicates, 'entries', D.duplicates.length + ' groups: same tracker, versions, episodes',
     function () { location.hash = '#duplicates'; });
   renderErrorsTile();
+  renderCategoriesTile();
+  renderUndeclaredTile();
   var sr = D.search;
   if (sr) {
     kpi($('k-opportunity'), 'Upload opportunities', 'up', sr.opportunity, 'entries',
@@ -514,6 +520,51 @@ function renderOverview() {
   });
 }
 
+function renderCategoriesTile() {
+  var box = $('k-categories'), c = D.categories;
+  if (!c) { kpi(box, 'Categories', 'library', '—', '', 'Not collected yet'); return; }
+  var ko = c.counts.ko || 0, warn = c.counts.warn || 0;
+  kpi(box, 'Categories', 'library', c.counts.ok, 'OK', ko + ' to fix · ' + warn + ' waiting (move pending, finished transient)');
+  if (ko) box.querySelector('.value').style.color = C.warn;
+  var fixable = c.issues.filter(function (i) { return i.fix === 'set_category'; });
+  if (fixable.length) {
+    box.appendChild(el('div', {}, [el('button', {'class': 'btn sm', type: 'button', onclick: function () {
+      var groups = {};
+      fixable.forEach(function (i) { (groups[i.suggest] = groups[i.suggest] || []).push(i.hash); });
+      confirmDialog('Set the category of ' + fixable.length + ' torrent(s)?', Object.keys(groups).map(function (g) { return g + ': ' + groups[g].length; }).join(' · ') +
+        '. The category matches where the files already are: nothing moves.', 'Set')
+        .then(function () { Object.keys(groups).forEach(function (g) { act('set_category', groups[g], {category: g}); }); }, function () {});
+    }}, [icon('check', 'sm'), 'Fix ' + fixable.length + ' categories'])]));
+  }
+  box.appendChild(dropList(c.issues, function (i) {
+    var t = BYHASH[i.hash] || {name: i.hash};
+    var btn = i.fix === 'set_category' ? el('button', {'class': 'btn sm', type: 'button', text: i.suggest, title: 'Set category ' + i.suggest,
+      onclick: function () { act('set_category', [i.hash], {category: i.suggest}); }})
+      : i.fix === 'apply_category' ? el('button', {'class': 'btn sm', type: 'button', text: 'Move', title: 'Auto management on: qBittorrent moves it to the category folder',
+        onclick: function () { act('apply_category', [i.hash]); }}) : null;
+    return el('div', {'class': 'item'}, [el('span', {'class': 'badge ' + (i.status === 'ko' ? 'ko' : 'warn'), text: t.category || 'none'}),
+      el('span', {'class': 'name', title: t.name + '\n' + i.text, text: t.name}), btn]);
+  }));
+}
+function duration(sec) { return sec >= 86400 ? fix(sec / 86400, 1) + ' d' : fix(sec / 3600, 1) + ' h'; }
+function renderUndeclaredTile() {
+  var box = $('k-undeclared'), list = (D.undeclared || []).map(function (h) { return BYHASH[h]; }).filter(Boolean);
+  kpi(box, 'Outside declared trackers', 'outside', list.length, 'torrents', 'Trackers Prowlarr does not know: public or one-off sharing. Clean them once done.');
+  var done = list.filter(function (t) { return t.progress >= 1; });
+  if (done.length) {
+    box.appendChild(el('div', {}, [el('button', {'class': 'btn sm danger', type: 'button', onclick: function () {
+      confirmAct('remove', done.map(function (t) { return t.hash; }), 'Clean ' + done.length + ' finished torrent(s)?',
+        'Removes them from qBittorrent. Files are deleted only if they sit in the transient folder.');
+    }}, [icon('remove', 'sm'), 'Clean ' + done.length + ' finished'])]));
+  }
+  box.appendChild(dropList(list, function (t) {
+    return el('div', {'class': 'item'}, [trackerChip(t.tracker), el('span', {'class': 'name', title: t.name, text: t.name}),
+      el('span', {'class': 'faint small', text: 'ratio ' + fix(t.ratio, 2) + ' · ' + duration(t.seeding_time)}),
+      el('button', {'class': 'btn sm danger', type: 'button', title: 'Remove', 'aria-label': 'Remove', onclick: function () {
+        confirmAct('remove', [t.hash], 'Remove this torrent?', t.name + ' (' + (TNAME[t.tracker] || t.tracker || 'no tracker') + ', ratio ' + fix(t.ratio, 2) + ').');
+      }}, [icon('remove', 'sm')])]);
+  }));
+}
 function renderErrorsTile() {
   var box = $('k-errors'), hashes = S.error_torrents || [];
   kpi(box, 'Torrents in error', 'warn', hashes.length, 'torrents', 'Deleted by the tracker, tracker errors, failed matches, missing files');
@@ -542,8 +593,12 @@ function renderMerge() {
   if (m.torrents.length) {
     left.appendChild(el('button', {'class': 'btn filled', type: 'button', style: 'margin-top:16px', onclick: function () {
       confirmDialog('Move ' + m.torrents.length + ' torrents to ' + m.into + '?',
-        'qBittorrent moves them one at a time; follow them in the queued jobs tile.', 'Move')
-        .then(function () { return act('move', m.torrents, {location: m.into_path}, 'Regroup'); }, function () {});
+        (m.category ? 'Category ' + m.category + ', auto management on: ' : '') + 'qBittorrent moves them one at a time; follow them in the queued jobs tile.', 'Move')
+        .then(function () {
+          // Through the category: qBittorrent moves each torrent to the category folder.
+          return m.category ? act('apply_category', m.torrents, {category: m.category}, 'Regroup')
+            : act('move', m.torrents, {location: m.into_path}, 'Regroup');
+        }, function () {});
     }}, [icon('move', 'sm'), 'Move ' + m.torrents.length + ' torrents']));
   }
   var right = el('div', {'class': 'c6'}, [el('div', {'class': 'kpi'}, [el('div', {'class': 'label', text: 'Without a library torrent: plain files'}),

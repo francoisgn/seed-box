@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.9.4
+
+- Categories tile: each torrent checked against the qBittorrent category that
+  matches its folder (library torrents), the link category (cross-seed links),
+  or the transient folder (`transient_dir`, until finished). One-click fixes:
+  set the matching category (nothing moves), or apply the category folder
+  (auto management on: qBittorrent moves the torrent).
+- Regroup through the category whose folder is the target: set it, auto
+  management on, qBittorrent moves one torrent at a time.
+- "Outside declared trackers" tile: torrents on trackers Prowlarr does not
+  know (public, one-off), with ratio and seeding time; clean the finished ones,
+  with their files when they sit in the transient folder.
+- Actions `set_category`, `apply_category`; files may be deleted for transient
+  downloads too (never for library content).
+
 ## 0.9.3
 
 - Collect now: reported as running right away, so the page does not reload

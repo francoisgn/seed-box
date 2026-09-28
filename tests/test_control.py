@@ -327,6 +327,49 @@ class CrossSeed(unittest.TestCase):
         self.assertEqual([i["code"] for i in dns["issues"]], ["tracker_error"])
 
 
+class Categories(unittest.TestCase):
+    def test_check_and_actions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            films = os.path.join(tmp, "media", "films")
+            os.makedirs(os.path.join(tmp, "media", "tmp-inc"))
+            cfg = load_cfg([films], tmp, path_map={"/video": os.path.join(tmp, "media")})
+            cfg.transient_dir = os.path.join(tmp, "media", "tmp-inc")
+            cats = {"films": {"savePath": "/video/films/films"}, "films-disney": {"savePath": "/video/films/disney"},
+                    "cross-seed-link": {"savePath": ""}}  # fmt: skip
+            base = {"progress": 1, "link": False, "category": ""}
+            records = [
+                {**base, "hash": "1", "save_path": "/video/films/disney", "category": "films-disney"},
+                {**base, "hash": "2", "save_path": "/video/films/disney"},
+                {**base, "hash": "3", "save_path": "/video/films/incoming", "category": "films"},
+                {**base, "hash": "4", "save_path": "/video/.cross-seed/T", "link": True, "category": "cross-seed-link"},
+                {**base, "hash": "5", "save_path": "/video/.cross-seed/T", "link": True},
+                {**base, "hash": "6", "save_path": "/video/tmp-inc", "progress": 0.5},
+                {**base, "hash": "7", "save_path": "/video/tmp-inc"},
+            ]
+            check = collect.category_check(cfg, records, cats)
+            by = {i["hash"]: i for i in check["issues"]}
+            self.assertEqual(sorted(by), ["2", "3", "5", "7"])
+            self.assertEqual((by["2"]["fix"], by["2"]["suggest"]), ("set_category", "films-disney"))
+            self.assertEqual((by["3"]["status"], by["3"]["fix"]), ("warn", "apply_category"))
+            self.assertEqual(by["5"]["suggest"], "cross-seed-link")
+            self.assertEqual(by["7"]["status"], "warn")
+            self.assertEqual(check["counts"]["ok"], 3)
+
+            cfg.actions = True
+            live = [{"hash": A, "name": "a", "save_path": "/video/films/incoming", "category": "films"},
+                    {"hash": B, "name": "b", "save_path": "/video/tmp-inc", "content_path": "/video/tmp-inc/b"}]  # fmt: skip
+            qbt = FakeQbt(live, {})
+            qbt.categories = lambda: cats
+            qbt.set_category = lambda hashes, cat: qbt.calls.append(("category", hashes, cat))
+            qbt.auto_management = lambda hashes, on: qbt.calls.append(("tmm", hashes, on))
+            actions.run(cfg, qbt, {"action": "apply_category", "hashes": [A], "category": "films"})
+            self.assertEqual(qbt.calls[-2:], [("category", [A], "films"), ("tmm", [A], True)])
+            with self.assertRaises(actions.ActionError):
+                actions.run(cfg, qbt, {"action": "set_category", "hashes": [A], "category": "nope"})
+            actions.run(cfg, qbt, {"action": "remove", "hashes": [B], "delete_files": True})
+            self.assertEqual(qbt.calls[-1], ("remove", [B], True))
+
+
 class Metrics(unittest.TestCase):
     def test_parsers(self):
         self.assertEqual(metrics.parse_cpu("cpu  100 0 50 800 40 0 10 0 0 0\ncpu0 1 2"), (1000, 800, 40))

@@ -176,6 +176,8 @@ def _torrent_record(cfg, torrent, keys, files, tracker_errors=()):
         "size": torrent.get("size") or 0,
         "uploaded": torrent.get("uploaded") or 0,
         "ratio": round(torrent.get("ratio") or 0, 2),
+        "seeding_time": torrent.get("seeding_time") or 0,
+        "auto_tmm": bool(torrent.get("auto_tmm")),
         "seeds": torrent.get("num_complete", 0),
         "leechs": torrent.get("num_incomplete", 0),
         "added_on": torrent.get("added_on", 0),
@@ -434,6 +436,7 @@ def merge_plan(cfg, entries, records):
     extra = [f for i in files if entries[i].kind == "file" for f in _siblings_rel(entries[i], base)]
     lines = [f'mkdir -p "{cfg.merge_into}"'] + [f'mv -n -- "{p}" "{cfg.merge_into}/"' for p in rel + extra]
     return {
+        "category": "",
         "into": cfg.merge_into,
         "into_path": target,
         "into_qbt": unmap_path(cfg, target),
@@ -442,6 +445,17 @@ def merge_plan(cfg, entries, records):
         "files": files,
         "script": "\n".join(lines),
     }
+
+
+def _merge_with_category(cfg, entries, records, categories):
+    """The regroup plan, with the qBittorrent category whose folder is the target
+    (then the move is: set that category, auto management on)."""
+    plan = merge_plan(cfg, entries, records)
+    if plan:
+        for name, c in categories.items():
+            if (c.get("savePath") or "").rstrip("/") == plan["into_qbt"]:
+                plan["category"] = name
+    return plan
 
 
 def _siblings_rel(entry, base):
@@ -461,6 +475,59 @@ def _siblings_rel(entry, base):
         if name.startswith(stem + ".") or (key and titles.part_key(name) == key):
             out.append(os.path.relpath(full, base))
     return out
+
+
+def category_check(cfg, records, categories):
+    """Is each torrent in the category that matches where its files are?
+
+    Library torrents: a category whose save path is their folder. Cross-seed
+    link torrents: the link category, inside a link folder. Transient downloads
+    (partial, one-off): anywhere under transient_dir, until finished.
+    """
+    paths = {name: (c.get("savePath") or "").rstrip("/") for name, c in categories.items()}
+    by_path = {}
+    for name, path in paths.items():
+        if path and name != cfg.link_category:
+            by_path.setdefault(path, name)
+    transient = unmap_path(cfg, cfg.transient_dir) if cfg.transient_dir else ""
+    rows = []
+    for r in records:
+        save = (r["save_path"] or "").rstrip("/")
+        cat = r["category"]
+        status, text, fix, suggest = "ok", "", "", ""
+        if r["link"]:
+            if cat != cfg.link_category:
+                status, text, fix, suggest = (
+                    "ko",
+                    f"cross-seed link without the {cfg.link_category} category",
+                    "set_category",
+                    cfg.link_category,
+                )
+        elif cat == cfg.link_category:
+            status, text = "ko", "library torrent in the cross-seed link category"
+            suggest = by_path.get(save, "")
+            fix = "set_category" if suggest else ""
+        elif transient and (save == transient or save.startswith(transient + "/")):
+            if r["progress"] >= 1:
+                status, text = "warn", "finished but still in the transient folder: give it a category, or clean it"
+        elif not cat:
+            suggest = by_path.get(save, "")
+            status, text = (
+                "ko",
+                "no category" + (f": {suggest} matches its folder" if suggest else ", and no category has this folder"),
+            )
+            fix = "set_category" if suggest else ""
+        elif paths.get(cat, "") != save:
+            status = "warn"
+            target = paths.get(cat) or "the default folder"
+            text = f"category {cat} points to {target}: moved there once auto management is on"
+            fix = "apply_category"
+        if status != "ok":
+            rows.append({"hash": r["hash"], "status": status, "text": text, "fix": fix, "suggest": suggest})
+    counts = {"ok": len(records) - len(rows)}
+    for row in rows:
+        counts[row["status"]] = counts.get(row["status"], 0) + 1
+    return {"counts": counts, "issues": rows, "categories": paths}
 
 
 def timeline(entries, records, rows):
@@ -571,6 +638,15 @@ def run(cfg, log, progress=lambda msg: None):
         if row["in_prowlarr"] and row.get("failing"):
             warn(f"tracker {row['name']} is failing in Prowlarr")
 
+    # Torrents on trackers Prowlarr does not know: public or one-off sharing.
+    for r in records:
+        r["declared"] = not indexers or not r["tracker"] or r["tracker"] in indexers
+    try:
+        categories = client.categories()
+    except ApiError as exc:
+        categories = {}
+        warn(f"qBittorrent categories unavailable: {exc}")
+
     # "Everywhere" = on every enabled Prowlarr tracker (or every tracker seen).
     target = {k for k, v in indexers.items() if v.get("enabled")} or {r["key"] for r in rows}
     duplicates = diagnose(entries, records, target)
@@ -643,7 +719,10 @@ def run(cfg, log, progress=lambda msg: None):
         ],
         "search": search,
         "cross_seed": {"indexers": xs["indexers"]} if xs else None,
-        "merge": merge_plan(cfg, entries, records),
+        "merge": _merge_with_category(cfg, entries, records, categories),
+        "categories": category_check(cfg, records, categories),
+        "undeclared": [r["hash"] for r in records if not r["declared"]],
+        "transient_qbt": unmap_path(cfg, cfg.transient_dir) if cfg.transient_dir else "",
         "torrents": records,
         "duplicates": duplicates,
         "unmatched": unmatched,

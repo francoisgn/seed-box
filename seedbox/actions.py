@@ -25,7 +25,7 @@ import uuid
 from seedbox.api import ApiError
 from seedbox.config import map_path, unmap_path
 
-ACTIONS = ("move", "recheck", "start", "skip_extras", "remove")
+ACTIONS = ("move", "recheck", "start", "skip_extras", "remove", "set_category", "apply_category")
 HASH = re.compile(r"^[0-9a-f]{40}$|^[0-9a-f]{64}$")
 MAX_HASHES = 500
 KEEP_DONE_S = 7 * 86400
@@ -82,6 +82,13 @@ def _is_link(cfg, torrent):
     )
 
 
+def _is_transient(cfg, torrent):
+    if not cfg.transient_dir:
+        return False
+    local = map_path(cfg, torrent.get("content_path") or torrent.get("save_path") or "")
+    return local == cfg.transient_dir or local.startswith(cfg.transient_dir + "/")
+
+
 def run(cfg, client, request):
     """Validate and execute one action request. Returns the jobs created."""
     if not cfg.actions:
@@ -120,13 +127,27 @@ def run(cfg, client, request):
             ]
             if ids:
                 client.file_priority(h, ids, 0)
+    elif action in ("set_category", "apply_category"):
+        category = str(request.get("category") or "")
+        if category and category not in client.categories():
+            raise ActionError(f"unknown qBittorrent category: {category}")
+        if action == "set_category" and not category:
+            raise ActionError("set_category needs a category")
+        if category:
+            client.set_category(hashes, category)
+        if action == "apply_category":
+            # Auto management on: qBittorrent moves each torrent to its category folder.
+            client.auto_management(hashes, True)
+        target = category
     elif action == "remove":
         delete_files = bool(request.get("delete_files"))
         if delete_files:
             for h in hashes:
                 torrent = live[h]
-                if not _is_link(cfg, torrent):
-                    raise ActionError(f"{torrent['name']}: files are deleted only for cross-seed link torrents")
+                if not (_is_link(cfg, torrent) or _is_transient(cfg, torrent)):
+                    raise ActionError(
+                        f"{torrent['name']}: files are deleted only for cross-seed links and transient downloads"
+                    )
                 shared = [
                     o["name"]
                     for oh, o in live.items()
@@ -193,6 +214,10 @@ def _status(job, torrent, now):
         if state in CHECKING:
             return "running"
         return "done" if age > 20 else "pending"
+    if action == "apply_category":
+        if state == "moving":
+            return "running"
+        return "done" if torrent.get("auto_tmm") and age > 20 else "pending"
     if action == "start":
         return "pending" if state in STOPPED and age < 600 else ("failed" if state in STOPPED else "done")
     return "done"
