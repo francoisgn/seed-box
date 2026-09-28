@@ -4,6 +4,8 @@ Read-only snapshot for `seedbox status` and the dashboard's live panel. Deletion
 have no queue in libtorrent: they only show up afterwards, in the log.
 """
 
+import json
+import os
 import re
 from datetime import UTC, datetime
 
@@ -43,6 +45,40 @@ SETTINGS = (
     "up_limit",
     "dl_limit",
 )
+
+
+# Dashboard state kept by seedbox (qBittorrent's log itself cannot be cleared).
+STATE_FILE = "ui-state.json"
+
+
+def _state_path(cfg):
+    return os.path.join(cfg.output_dir, STATE_FILE)
+
+
+def errors_cleared(cfg):
+    """Time the errors list was last cleared from the dashboard (epoch), or None."""
+    try:
+        with open(_state_path(cfg), encoding="utf-8") as handle:
+            return float(json.load(handle).get("errors_cleared"))
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def clear_errors(cfg, now=None):
+    """Hide the warnings and errors logged so far; returns the time as ISO."""
+    now = now or datetime.now(UTC).timestamp()
+    try:
+        with open(_state_path(cfg), encoding="utf-8") as handle:
+            state = json.load(handle)
+    except (OSError, ValueError):
+        state = {}
+    state["errors_cleared"] = now
+    os.makedirs(cfg.output_dir, exist_ok=True)
+    tmp = _state_path(cfg) + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        json.dump(state, handle)
+    os.replace(tmp, _state_path(cfg))
+    return _iso(now)
 
 
 def _iso(ts):
@@ -150,10 +186,12 @@ def gather(client, events=30, cfg=None, errors_kept=30):
         if EVENT.search(m.setdefault("message", "").split(". Torrent:")[0]) or (m.get("type") or 1) >= 4
     ][-events:]
     # Warnings and errors on their own: a burst of moves must not push them out.
+    # Those logged before the last "clear" from the dashboard are hidden.
+    cleared = errors_cleared(cfg) if cfg else None
     errors = [
         {"time": _iso(m.get("timestamp", 0)), "level": LEVEL.get(m.get("type"), "warn"), "message": m["message"]}
         for m in log
-        if (m.get("type") or 1) >= 4
+        if (m.get("type") or 1) >= 4 and (cleared is None or m.get("timestamp", 0) > cleared)
     ][-errors_kept:]
     return {
         "generated": datetime.now(UTC).isoformat(timespec="seconds"),
@@ -179,6 +217,7 @@ def gather(client, events=30, cfg=None, errors_kept=30):
         "io_sources": io_sources,
         "events": recent,
         "errors": errors,
+        "errors_cleared": _iso(cleared) if cleared else None,
         "moves": log_moves(log),
         "removals": log_removals(log),
         "jobs": actions.refresh(cfg, torrents) if cfg else [],

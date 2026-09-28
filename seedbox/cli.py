@@ -177,6 +177,7 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
     POST /api/collect  collect now
     POST /api/action   move, recheck, start, skip extras, remove ([service] actions)
     POST /api/match    release matching: search, verify, apply ([service] actions)
+    POST /api/errors/clear  hide the qBittorrent warnings and errors logged so far
 
     POSTs need the X-Seedbox header and a JSON body: a page from another site
     cannot send that without a CORS preflight, which is never granted here.
@@ -235,6 +236,8 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
         if path == "/api/action":
             code, result = actions.handle(self.cfg, self._client, body)
             return self._send(code, result)
+        if path == "/api/errors/clear":
+            return self._send(200, {"errors_cleared": status.clear_errors(self.cfg)})
         if path == "/api/match":
             code, result = match.handle(self.cfg, self._client, body)
             return self._send(code, result)

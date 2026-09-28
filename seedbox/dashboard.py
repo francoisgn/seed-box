@@ -138,7 +138,8 @@ PAGE = """<!DOCTYPE html>
   <div class="grid">
     <div class="card kpi c6" id="a-io" data-live></div>
     <div class="card kpi c6" id="a-transfer" data-live></div>
-    <div class="card c12" data-live><div class="card-head"><h3>Latest qBittorrent errors</h3><span class="sub muted small">warnings and errors from its log, newest first</span></div><div id="a-errors"></div></div>
+    <div class="card c12" data-live><div class="card-head"><h3>Latest qBittorrent errors</h3><span class="sub muted small">warnings and errors from its log, newest first</span>
+      <button class="btn sm" id="errors-clear" type="button" title="Hide the warnings and errors logged so far (qBittorrent's log itself is kept)">Clear</button></div><div id="a-errors"></div></div>
     <div class="card c12" data-live><div class="card-head"><h3>Busy torrents</h3><span class="sub muted small">moving, checking, queued, stopped or in error</span></div><div id="a-busy"></div></div>
     <div class="card c12" data-live><div class="card-head"><h3>Jobs sent from the dashboard</h3><span class="sub muted small">status read back from qBittorrent</span></div><div id="a-jobs"></div></div>
   </div>

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.0
+
+- Torrents outside the library: a Remove button per torrent; for one that
+  only seeds from its cross-seed links (library copy deleted), the links can
+  go with it and the space is freed.
+- Latest qBittorrent errors: Clear hides the warnings and errors logged so
+  far (a marker in `ui-state.json`: qBittorrent's log itself cannot be
+  cleared through its API); the empty list says when it was cleared.
+
 ## 1.1.1
 
 The release matching below. `1.1.0` was tagged by mistake on the 1.0.1

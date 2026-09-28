@@ -733,9 +733,16 @@ function logTable(rows) {
 }
 function renderErrors() {
   var box = $('a-errors'); clear(box);
+  $('errors-clear').hidden = true;
   if (!L) { box.appendChild(el('p', {'class': 'empty', text: LIVE ? 'Loading…' : 'Live data needs seedbox run.'})); return; }
   var rows = (L.errors || []).slice().reverse();
-  if (!rows.length) { box.appendChild(el('p', {'class': 'empty', text: 'No warning or error in the qBittorrent log.'})); return; }
+  $('errors-clear').hidden = !rows.length || !LIVE;
+  if (!rows.length) {
+    box.appendChild(el('p', {'class': 'empty', text: L.errors_cleared
+      ? 'No warning or error since the list was cleared, ' + new Date(L.errors_cleared).toLocaleString() + '.'
+      : 'No warning or error in the qBittorrent log.'}));
+    return;
+  }
   var view = paged('errors', rows, 5, 15, 2, renderErrors);
   box.appendChild(logTable(view.rows));
   box.appendChild(view.controls);
@@ -1203,10 +1210,17 @@ function renderOutside() {
     var r = REASONS[u.reason] || ['', u.reason, ''];
     tb.appendChild(el('tr', {}, [el('td', {}, [el('span', {'class': 'badge ' + r[0], title: r[2], text: r[1]})]),
       el('td', {'class': 'name'}, [el('div', {'class': 't', title: u.name, text: u.name}), el('div', {'class': 'path', text: u.path})]),
-      el('td', {}, [el('div', {'class': 'tracks'}, u.trackers.map(trackerChip))]), el('td', {}, [stateBadge(u.state)])]));
+      el('td', {}, [el('div', {'class': 'tracks'}, u.trackers.map(trackerChip))]), el('td', {}, [stateBadge(u.state)]),
+      el('td', {'class': 'num'}, [D.actions ? el('button', {'class': 'btn sm danger', type: 'button', title: 'Remove', 'aria-label': 'Remove',
+        onclick: function () {
+          confirmAct('remove', [u.hash], 'Remove this torrent?', u.name + '. ' + (u.reason === 'link_only'
+            ? 'The library copy is already gone: with its link files, the space is freed (unless another torrent uses them).'
+            : 'Its files stay on disk unless they are cross-seed links or transient downloads.'));
+        }}, [icon('remove', 'sm')]) : null])]));
   });
   box.appendChild(el('div', {'class': 'table-wrap'}, [el('table', {}, [el('thead', {}, [el('tr', {}, [
-    el('th', {text: 'Why'}), el('th', {text: 'Torrent'}), el('th', {text: 'Tracker'}), el('th', {text: 'State'})])]), tb])]));
+    el('th', {text: 'Why'}), el('th', {text: 'Torrent'}), el('th', {text: 'Tracker'}), el('th', {text: 'State'}),
+    el('th', {'class': 'num', text: ''})])]), tb])]));
   var legend = el('div', {'class': 'legend'});
   Object.keys(REASONS).forEach(function (k) { legend.appendChild(el('span', {}, [el('b', {style: 'color:var(--t1);font-weight:500', text: REASONS[k][1] + ':'}), REASONS[k][2]])); });
   box.appendChild(legend);
@@ -1260,6 +1274,9 @@ function init() {
     query = e.target.value.toLowerCase(); shown = 100; renderLibrary();
   });
   $('live-refresh').onclick = function () { refreshLive(); refreshMetrics(); };
+  $('errors-clear').onclick = function () {
+    api('api/errors/clear', {}).then(refreshLive, function (e) { toast('Failed: ' + e.message); });
+  };
   $('auto').onclick = function () { setAuto($('auto').getAttribute('aria-pressed') !== 'true'); };
   $('collect').onclick = collectNow;
   if (!D.actions) $('collect').hidden = true;

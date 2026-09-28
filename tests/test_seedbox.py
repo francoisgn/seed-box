@@ -429,6 +429,18 @@ class Status(unittest.TestCase):
         self.assertEqual(st["settings"], {"max_active_uploads": 20, "disk_io_type": 2})
         self.assertEqual([e["level"] for e in st["events"]], ["info", "warn"])
 
+    def test_errors_cleared(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {"SEEDBOX_ROOTS": tmp, "SEEDBOX_OUTPUT_DIR": tmp}
+            with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(config, "DEFAULT_PATHS", ()):
+                cfg = config.load()
+            self.enterContext(mock.patch.object(status.actions, "refresh", return_value=[]))
+            self.assertEqual(len(status.gather(FakeQbtStatus(), cfg=cfg)["errors"]), 1)
+            status.clear_errors(cfg, now=3)
+            st = status.gather(FakeQbtStatus(), cfg=cfg)
+            # Logged at or before the clear: hidden; the log itself is not touched.
+            self.assertEqual((st["errors"], st["errors_cleared"][:4]), ([], "1970"))
+
     def test_show(self):
         out = io.StringIO()
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(out):
