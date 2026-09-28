@@ -295,6 +295,11 @@ class CrossSeed(unittest.TestCase):
         self.assertEqual(by["New.2024.mkv"].search_state, "not_indexed")
         self.assertEqual(by["Seeded.2019.mkv"].search_state, "complete")
         self.assertEqual(counts["opportunity"], 2)
+        # Only another release on the one tracker it misses: not a plain opportunity.
+        other = by["Other.2018.mkv"]
+        other.trackers, other.search = ["alpha.example"], {}
+        collect.search_status(self.cfg, [other], xs, {"alpha.example", "beta.example"})
+        self.assertEqual(other.search_state, "other_release")
         self.assertEqual([i["status"] for i in xs["indexers"]], ["OK", "RATE_LIMITED"])
 
         records = [{"hash": A, "link": False}, {"hash": B, "link": True}]

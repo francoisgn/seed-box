@@ -381,10 +381,12 @@ def search_status(cfg, entries, xs, target):
     """Per entry, for each target tracker it is missing on: has cross-seed searched there?
 
     States: complete (on every target tracker), opportunity (searched everywhere
-    it is missing, nothing matching: upload it), found (a match exists that is
-    not in qBittorrent), unsearched, not_indexed (outside cross-seed's dataDirs).
+    it is missing, absent from at least one: upload it), other_release (searched,
+    only other releases of the title there: an upload may be a dupe), found (a
+    match exists that is not in qBittorrent), unsearched, not_indexed (outside
+    cross-seed's dataDirs).
     """
-    counts = {"complete": 0, "opportunity": 0, "found": 0, "unsearched": 0, "not_indexed": 0}
+    counts = {"complete": 0, "opportunity": 0, "other_release": 0, "found": 0, "unsearched": 0, "not_indexed": 0}
     for entry in entries:
         missing = sorted(set(target) - set(entry.trackers))
         if not missing:
@@ -406,8 +408,11 @@ def search_status(cfg, entries, xs, target):
                     entry.search_state = "unsearched"
                 elif "found" in verdicts:
                     entry.search_state = "found"
-                else:
+                elif "absent" in verdicts:
                     entry.search_state = "opportunity"
+                else:
+                    # Only other releases of the title there: an upload may be refused as a dupe.
+                    entry.search_state = "other_release"
         counts[entry.search_state] += 1
     return counts
 

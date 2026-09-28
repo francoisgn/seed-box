@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.9.6
+
+- Upload opportunity split: "absent: upload it" (absent from a tracker
+  cross-seed searched) vs "other release present" (only other releases of the
+  title there: an upload may be refused as a dupe).
+- Library filters combine: a seeding group (everywhere, partial, not seeded,
+  downloading) and a situation group (problems, duplicates, absent, other
+  release, not searched yet); OR inside a group, AND between groups. Counts
+  follow the other group's selection.
+
 ## 0.9.5
 
 - Copy script works on the plain-http dashboard: the clipboard API only exists

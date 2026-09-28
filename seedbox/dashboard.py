@@ -137,7 +137,7 @@ PAGE = """<!DOCTYPE html>
   <div class="section-head"><h2>Library</h2><span class="muted" id="lib-count"></span></div>
   <div class="card" id="merge" style="margin-bottom:24px"></div>
   <div class="card">
-    <div class="chips" id="lib-chips" style="margin-bottom:16px"></div>
+    <div id="lib-chips" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px"></div>
     <div class="chips" style="margin-bottom:8px">
       <select class="select" id="lib-folder" aria-label="Folder"><option value="">All folders</option></select>
       <select class="select" id="lib-missing" aria-label="Missing on tracker"><option value="">Any tracker</option></select>

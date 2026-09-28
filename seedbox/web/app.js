@@ -469,7 +469,8 @@ function renderOverview() {
   var sr = D.search;
   if (sr) {
     kpi($('k-opportunity'), 'Upload opportunities', 'up', sr.opportunity, 'entries',
-      'cross-seed searched every tracker they miss: nothing there', function () { setFilter('opportunity'); location.hash = '#library'; });
+      'Absent from a tracker cross-seed searched · ' + (sr.other_release || 0) + ' more with only another release there (dupe risk)',
+      function () { setFilter('opportunity'); location.hash = '#library'; });
     kpi($('k-unsearched'), 'Not searched yet', 'search', sr.unsearched + sr.not_indexed, 'entries',
       sr.unsearched + ' waiting for cross-seed · ' + sr.not_indexed + ' outside its data folders', function () { setFilter('unsearched'); location.hash = '#library'; });
   } else {
@@ -828,7 +829,7 @@ function renderDuplicates() {
 }
 
 // ---------- library
-var filter = 'all', folder = '', missing = '', query = '', sortKey = 'size', desc = true, shown = 100, openRow = null;
+var folder = '', missing = '', query = '', sortKey = 'size', desc = true, shown = 100, openRow = null;
 var selected = {};
 D.entries.forEach(function (e, i) {
   e._i = i;
@@ -837,28 +838,70 @@ D.entries.forEach(function (e, i) {
   e._k = (e.name + ' ' + e.folder + ' ' + e.trackers.map(function (k) { return TNAME[k] || k; }).join(' ')).toLowerCase();
   e._main = e.torrents.filter(function (h) { return BYHASH[h] && !BYHASH[h].link; });
 });
-var FILTERS = [
-  ['all', 'All', function () { return true; }],
-  ['everywhere', 'Seeded everywhere', function (e) { return e.coverage === 'everywhere' && e.status === 'seeded'; }],
-  ['partial', 'Partially seeded', function (e) { return e.coverage === 'partial'; }],
-  ['none', 'On disk, not seeded', function (e) { return e.coverage === 'none'; }],
-  ['incomplete', 'Downloading', function (e) { return e.status === 'incomplete'; }],
-  ['problems', 'Problems', function (e) { return e._problems > 0; }],
-  ['duplicates', 'Duplicates', function (e) { return e._dup; }],
-  ['opportunity', 'Upload opportunity', function (e) { return e.search_state === 'opportunity'; }],
-  ['unsearched', 'Not searched yet', function (e) { return e.search_state === 'unsearched' || e.search_state === 'not_indexed'; }]
+// Two groups of filter chips: OR inside a group, AND between groups.
+var GROUPS = [
+  {id: 'seed', label: 'Seeding', chips: [
+    ['everywhere', 'Seeded everywhere', function (e) { return e.coverage === 'everywhere' && e.status === 'seeded'; }],
+    ['partial', 'Partially seeded', function (e) { return e.coverage === 'partial' && e.status !== 'incomplete'; }],
+    ['none', 'On disk, not seeded', function (e) { return e.coverage === 'none'; }],
+    ['incomplete', 'Downloading', function (e) { return e.status === 'incomplete'; }]
+  ]},
+  {id: 'state', label: 'Situation', chips: [
+    ['problems', 'Problems', function (e) { return e._problems > 0; }],
+    ['duplicates', 'Duplicates', function (e) { return e._dup; }],
+    ['opportunity', 'Absent: upload it', function (e) { return e.search_state === 'opportunity'; }],
+    ['other_release', 'Other release present', function (e) { return e.search_state === 'other_release'; }],
+    ['unsearched', 'Not searched yet', function (e) { return e.search_state === 'unsearched' || e.search_state === 'not_indexed'; }]
+  ]}
 ];
+var active = {seed: {}, state: {}};
+var CHIPFN = {};
+GROUPS.forEach(function (g) { g.chips.forEach(function (c) { CHIPFN[c[0]] = {group: g.id, fn: c[2]}; }); });
+function inGroup(e, gid) {
+  var keys = Object.keys(active[gid]);
+  return !keys.length || keys.some(function (k) { return CHIPFN[k].fn(e); });
+}
+function baseMatch(e) {
+  return (!folder || e.folder === folder) && (!missing || e.trackers.indexOf(missing) < 0) && (!query || e._k.indexOf(query) >= 0);
+}
+// From a tile: show only this chip.
 function setFilter(f) {
-  filter = f; shown = 100;
-  document.querySelectorAll('#lib-chips .chip').forEach(function (c) { c.setAttribute('aria-pressed', c.dataset.f === f ? 'true' : 'false'); });
-  renderLibrary();
+  active = {seed: {}, state: {}};
+  if (CHIPFN[f]) active[CHIPFN[f].group][f] = true;
+  shown = 100; renderLibrary();
+}
+function toggleChip(f) {
+  var g = active[CHIPFN[f].group];
+  if (g[f]) delete g[f]; else g[f] = true;
+  shown = 100; renderLibrary();
+}
+function updateChips() {
+  var none = !Object.keys(active.seed).length && !Object.keys(active.state).length;
+  document.querySelectorAll('#lib-chips .chip').forEach(function (c) {
+    var f = c.dataset.f;
+    if (f === 'all') {
+      c.setAttribute('aria-pressed', none ? 'true' : 'false');
+      c.querySelector('.n').textContent = String(D.entries.filter(baseMatch).length);
+      return;
+    }
+    var gid = CHIPFN[f].group, other = gid === 'seed' ? 'state' : 'seed';
+    c.setAttribute('aria-pressed', active[gid][f] ? 'true' : 'false');
+    // Count under the other group's selection, so combinations read directly.
+    c.querySelector('.n').textContent = String(D.entries.filter(function (e) {
+      return baseMatch(e) && inGroup(e, other) && CHIPFN[f].fn(e);
+    }).length);
+  });
 }
 function buildLibraryControls() {
   var chips = $('lib-chips');
-  FILTERS.forEach(function (f) {
-    var n = D.entries.filter(f[2]).length;
-    chips.appendChild(el('button', {'class': 'chip', type: 'button', 'data-f': f[0], 'aria-pressed': f[0] === 'all' ? 'true' : 'false',
-      onclick: function () { setFilter(f[0]); }}, [icon('check', 'check'), f[1], el('span', {'class': 'n', text: String(n)})]));
+  function chip(f, label, onclick) {
+    return el('button', {'class': 'chip', type: 'button', 'data-f': f, 'aria-pressed': 'false', onclick: onclick},
+      [icon('check', 'check'), label, el('span', {'class': 'n'})]);
+  }
+  chips.appendChild(el('div', {'class': 'chips'}, [chip('all', 'All', function () { setFilter('all'); })]));
+  GROUPS.forEach(function (g) {
+    chips.appendChild(el('div', {'class': 'chips', style: 'align-items:center'}, [el('span', {'class': 'muted small', style: 'width:80px', text: g.label})]
+      .concat(g.chips.map(function (c) { return chip(c[0], c[1], function () { toggleChip(c[0]); }); }))));
   });
   var fs = $('lib-folder');
   var names = {};
@@ -899,10 +942,7 @@ function batchAct(action) {
   act(action, hashes);
 }
 function visibleEntries() {
-  var fn = FILTERS.filter(function (f) { return f[0] === filter; })[0][2];
-  var rows = D.entries.filter(function (e) {
-    return fn(e) && (!folder || e.folder === folder) && (!missing || e.trackers.indexOf(missing) < 0) && (!query || e._k.indexOf(query) >= 0);
-  });
+  var rows = D.entries.filter(function (e) { return baseMatch(e) && inGroup(e, 'seed') && inGroup(e, 'state'); });
   rows.sort(function (a, b) {
     var x, y;
     if (sortKey === 'trackers') { x = a.trackers.length; y = b.trackers.length; }
@@ -978,6 +1018,7 @@ function entryDetail(e) {
 function renderLibrary() {
   var rows = visibleEntries(), body = $('lib-body'); clear(body);
   $('lib-count').textContent = rows.length + ' of ' + D.entries.length;
+  updateChips();
   document.querySelectorAll('#lib-table th[data-sort]').forEach(function (th) { th.classList.toggle('sorted', th.dataset.sort === sortKey); });
   var frag = document.createDocumentFragment();
   rows.slice(0, shown).forEach(function (e) {
