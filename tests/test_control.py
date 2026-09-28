@@ -306,6 +306,11 @@ class CrossSeed(unittest.TestCase):
         qbt = FakeQbt([{"hash": A, "name": "Split", "save_path": "/video/films/archives"}], {})
         actions.run(self.cfg, qbt, {"action": "move", "hashes": [A], "location": os.path.join(self.films, "films")})
         self.assertEqual(qbt.calls[-1], ("move", [A], "/video/films/films"))
+        # Neither ".." nor a symlink inside the root leads out of it.
+        os.symlink(self.tmp.name, os.path.join(self.films, "escape"))
+        for location in (os.path.join(self.films, "..", "out"), os.path.join(self.films, "escape", "out")):
+            with self.assertRaises(actions.ActionError):
+                actions.run(self.cfg, qbt, {"action": "move", "hashes": [A], "location": location})
 
     def test_unregistered(self):
         torrent = {"hash": A, "name": "Dupe", "state": "stalledUP", "tracker": ""}

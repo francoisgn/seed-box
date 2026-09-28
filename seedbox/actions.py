@@ -66,14 +66,20 @@ def _in_link_dir(cfg, path):
 
 def _check_destination(cfg, local):
     local = os.path.normpath(local)
-    if not any(local == r or local.startswith(r + "/") for r in cfg.roots):
+    # Resolved: neither ".." nor a symlink inside a root can lead outside it.
+    real = os.path.realpath(local)
+    if not any(_under(real, os.path.realpath(r)) for r in cfg.roots):
         raise ActionError("destination must be inside a library root")
-    if _in_link_dir(cfg, local):
+    if _in_link_dir(cfg, real):
         raise ActionError("destination is a cross-seed link folder")
     # qBittorrent creates a missing destination; its parent must exist.
-    if not os.path.isdir(local) and not os.path.isdir(os.path.dirname(local)):
+    if not os.path.isdir(real) and not os.path.isdir(os.path.dirname(real)):
         raise ActionError(f"destination folder and its parent do not exist: {local}")
     return unmap_path(cfg, local)
+
+
+def _under(path, root):
+    return os.path.commonpath([path, root]) == root
 
 
 def _is_link(cfg, torrent):

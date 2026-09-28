@@ -7,6 +7,11 @@ LABEL org.opencontainers.image.source="https://github.com/francoisgn/seed-box" \
 # Config: /config/seedbox.toml if mounted, and/or SEEDBOX_* variables.
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 SEEDBOX_OUTPUT_DIR=/data
 
+# No dependency to install: drop pip and the wheels ensurepip bundles, whose
+# vendored packages (setuptools, msgpack…) only bring CVEs to the image.
+RUN python -m pip uninstall -y -q pip \
+ && rm -rf "$(python -c 'import ensurepip, os; print(os.path.dirname(ensurepip.__file__))')/_bundled"
+
 WORKDIR /app
 COPY LICENSE ./
 COPY seedbox/ seedbox/

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.1
+
+- Move destinations resolved (`realpath`) before the library-root check: a
+  symlink inside a root can no longer lead a move outside it.
+- Image without pip and its bundled wheels (setuptools, msgpack CVEs; seedbox
+  has no dependency).
+- Releases: SBOM and signed build provenance on the image, GitHub release notes
+  from this changelog; weekly container scan in the Security tab.
+
 ## 1.0.0
 
 - Dashboard layout: Warnings first (collection warnings, torrents outside the
