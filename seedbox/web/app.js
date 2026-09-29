@@ -204,13 +204,16 @@ function donut(box, segs, center, sub) {
   });
   svg.appendChild(sv('text', {x: 88, y: 86, 'text-anchor': 'middle', fill: 'var(--t1)', 'font-size': 28, text: center}));
   svg.appendChild(sv('text', {x: 88, y: 108, 'text-anchor': 'middle', fill: 'var(--t2)', 'font-size': 12, text: sub}));
-  var wrap = el('div', {style: 'display:flex;align-items:center;gap:24px;flex-wrap:wrap'}, [svg]);
+  // Legend on the left, donut on the right.
+  var wrap = el('div', {style: 'display:flex;align-items:center;justify-content:space-between;gap:16px'});
+  svg.style.flex = '0 1 176px'; svg.style.minWidth = '120px'; svg.style.height = 'auto';
   var legend = el('div', {'class': 'legend', style: 'flex-direction:column;margin:0'});
   segs.forEach(function (s) {
     legend.appendChild(el('span', {}, [el('i', {'class': 'key', style: 'background:' + s.color}),
       el('b', {style: 'color:var(--t1);font-weight:500;min-width:40px', text: String(s.value)}), s.label]));
   });
   wrap.appendChild(legend);
+  wrap.appendChild(svg);
   box.appendChild(wrap);
 }
 
@@ -472,8 +475,7 @@ function renderOverview() {
   cov.appendChild(el('div', {'class': 'gauge-wrap'}, [g, el('div', {'class': 'value', text: pct(S.coverage_pct)})]));
   cov.appendChild(el('div', {'class': 'foot', text: S.everywhere + ' everywhere · ' + S.partial + ' partial · ' + S.none + ' not seeded'}));
 
-  kpi($('k-library'), 'Library', 'disk', S.entries, 'entries', bytes(S.size) + ' · ' + FOLDERS.length + ' folders');
-  kpi($('k-uploaded'), 'Uploaded', 'up', fix(S.uploaded / TIB, 2), 'TiB', S.torrents + ' torrents, ' + S.cross_seed_torrents + ' from cross-seed');
+  renderRatios();
   kpi($('k-problems'), 'Problems', 'warn', S.problems, 'entries', 'Stopped, failed matches, tracker errors, missing extras, redundant uploads, lone films',
     function () { setFilter('problems'); location.hash = '#library'; });
   kpi($('k-dups'), 'Duplicates', 'duplicates', S.duplicates, 'entries', D.duplicates.length + ' groups: same tracker, versions, episodes',
@@ -496,12 +498,17 @@ function renderOverview() {
   ix.appendChild(el('div', {'class': 'label'}, [icon('activity', 'sm'), 'cross-seed indexers']));
   var list = el('div', {'class': 'chips', style: 'margin-top:8px'});
   ((D.cross_seed && D.cross_seed.indexers) || []).forEach(function (i) {
-    var okState = i.status === 'OK' || !i.status;
-    list.appendChild(el('span', {'class': 'badge ' + (okState ? 'ok' : 'warn'), title: i.status}, [(i.name || i.key) + ': ' + (i.status || 'ok').toLowerCase().replace('_', ' ')]));
+    var okState = i.status === 'OK' || !i.status, hhmm = function (ms) { return new Date(ms).toLocaleTimeString(undefined, {hour: '2-digit', minute: '2-digit'}); };
+    // cross-seed keeps the status until it queries the indexer again: past its retry time, the limit is over.
+    var over = !okState && i.retry_after && i.retry_after < Date.now();
+    var text = okState ? 'ok' : over ? 'limit over since ' + hhmm(i.retry_after) : (i.status || '').toLowerCase().replace('_', ' ') +
+      (i.retry_after ? ' until ' + hhmm(i.retry_after) : '');
+    list.appendChild(el('span', {'class': 'badge ' + (okState ? 'ok' : over ? 'info' : 'warn'),
+      title: i.status + (i.retry_after ? ', retry after ' + new Date(i.retry_after).toLocaleString() : '')}, [(i.name || i.key) + ': ' + text]));
   });
   if (!list.firstChild) list.appendChild(el('span', {'class': 'foot', text: 'cross-seed database not mounted'}));
   ix.appendChild(list);
-  ix.appendChild(el('div', {'class': 'foot', style: 'margin-top:8px', text: 'Rate limited: searches on hold until the tracker allows again'}));
+  ix.appendChild(el('div', {'class': 'foot', style: 'margin-top:8px', text: 'Rate limited: searches on hold until the retry time; the status only changes when cross-seed queries again'}));
 
   var parts = {everywhere: 0, partial: 0, incomplete: 0, none: 0};
   D.entries.forEach(function (e) { parts[e.status === 'incomplete' ? 'incomplete' : e.coverage]++; });
@@ -546,13 +553,45 @@ function renderOverview() {
     xFmt: function (d) { return new Date(d).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}); },
     tipFmt: function (d) { return new Date(d).toLocaleDateString(); }
   });
-  var hist = $('c-history');
-  lineChart(hist, {
-    xs: H.map(function (r) { return new Date(r.date).getTime(); }), label: 'Coverage at each collection', height: 120,
-    series: [{name: 'Coverage', color: C.ok, area: true, values: H.map(function (r) { return parseFloat(r.coverage_pct) || 0; })}],
-    yMax: 100, yFmt: function (v) { return pct(v, 0); }, empty: 'The curve appears from the second collection.',
+  // Coverage since the first torrent: rebuilt from add dates (entries seeded then / entries now),
+  // from 0 the day before, then the values measured at each collection.
+  var rebuilt = {}, measured = {};
+  if (tl.length) {
+    rebuilt[new Date(tl[0].date).getTime() - 86400000] = 0;
+    tl.forEach(function (p) { rebuilt[new Date(p.date).getTime()] = p.seeded / Math.max(S.entries, 1) * 100; });
+  }
+  H.forEach(function (r) { measured[new Date(r.date).getTime()] = parseFloat(r.coverage_pct) || 0; });
+  var hx = Object.keys(rebuilt).concat(Object.keys(measured)).map(Number).sort(function (a, b) { return a - b; })
+    .filter(function (x, k, a) { return !k || a[k - 1] !== x; });
+  lineChart($('c-history'), {
+    xs: hx, label: 'Library coverage', height: 200, yMax: 100, yFmt: function (v) { return pct(v, 0); },
+    series: [{name: 'Rebuilt from add dates', color: C.ok, area: true, values: hx.map(function (x) { return x in rebuilt ? rebuilt[x] : null; })},
+             {name: 'Measured at collections', color: C.primary, values: hx.map(function (x) { return x in measured ? measured[x] : null; })}],
+    empty: 'No torrent yet.',
     xFmt: function (x) { return new Date(x).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}); },
     tipFmt: function (x) { return new Date(x).toLocaleString(); }
+  });
+}
+
+// One tile per declared tracker (Prowlarr / cross-seed) plus the other trackers:
+// ratio of the torrents now in qBittorrent, their volumes, upload over 7 and 30 days.
+function renderRatios() {
+  document.querySelectorAll('.ratio-tile').forEach(function (n) { n.remove(); });
+  var slot = $('ratio-slot'), day = function (iso) { return new Date(iso).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}); };
+  (D.ratios || []).forEach(function (r) {
+    var box = el('div', {'class': 'card kpi c3 ratio-tile'});
+    slot.parentNode.insertBefore(box, slot);
+    var ratio = r.down ? fix(r.up / r.down, 2) : r.up ? '∞' : '—';
+    var win = [7, 30].map(function (d) {
+      var up = r['up_' + d + 'd'], since = r['up_' + d + 'd_since'];
+      if (up === null || up === undefined) return null;
+      var short = since && (Date.now() - new Date(since).getTime()) < (d - 1) * 86400000;
+      return '↑ ' + d + ' d ' + bytes(up) + (short ? ' (since ' + day(since) + ')' : '');
+    }).filter(Boolean);
+    kpi(box, r.key === 'other' ? 'Ratio, other trackers' : 'Ratio ' + (TNAME[r.key] || r.name), 'up', ratio, '',
+      '↑ ' + bytes(r.up) + ' · ↓ ' + bytes(r.down) + ' · ' + r.torrents + ' torrents' + (win.length ? '\n' + win.join(' · ') : ''));
+    box.title = r.down ? '' : 'Nothing downloaded on this tracker by the torrents in qBittorrent (cross-seeded): the ratio the tracker shows also counts past downloads.';
+    if (r.key !== 'other' && TCOLOR[r.key]) box.querySelector('.label').prepend(el('i', {'class': 'dot', style: 'background:' + TCOLOR[r.key]}));
   });
 }
 

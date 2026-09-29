@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.4.0
+
+- Ratio tiles: one per declared tracker (Prowlarr / cross-seed) plus one for
+  the other trackers: upload / download of the torrents in qBittorrent, the
+  volumes, and the upload over 7 and 30 days from a new per-collection history
+  (`history-ratios.csv`). They replace the Uploaded and Library tiles.
+- Overview tiles in four rows: library and sources, ratios, problems, work.
+  Charts in 1/3 - 2/3 rows, donut legends on the left.
+- Library coverage since the first torrent: rebuilt from the add dates from 0,
+  with the values measured at each collection on top.
+- cross-seed indexers: a rate limit whose retry time is past shows as over
+  (cross-seed keeps the status until it queries the indexer again) and no
+  longer raises a collection warning; an active one shows until when.
+
 ## 1.3.0
 
 - Orphan link files: files in the cross-seed folders that no torrent uses

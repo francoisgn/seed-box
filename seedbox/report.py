@@ -4,6 +4,7 @@ import csv
 import io
 import json
 import os
+from datetime import datetime
 
 from seedbox import dashboard
 
@@ -12,6 +13,8 @@ TIB = 1024**4
 
 HISTORY_HEADER = ["date", "entries", "seeded", "incomplete", "orphan", "coverage_pct", "size_tib", "uploaded_tib"]
 TRACKER_HISTORY_HEADER = ["date", "tracker", "entries", "coverage_pct", "uploaded_tib"]
+RATIO_HISTORY_HEADER = ["date", "key", "uploaded", "downloaded", "torrents"]
+DAY = 86400
 
 
 def _atomic_write(path, text):
@@ -42,6 +45,20 @@ def read_history(path, delimiter):
         return []
     with open(path, encoding="utf-8", newline="") as handle:
         return list(csv.DictReader(handle, delimiter=delimiter))
+
+
+def upload_since(history, key, up_now, now, days):
+    """(bytes uploaded over the last `days`, start of that window as ISO).
+
+    From the per-collection ratio history: the latest row at least `days` old,
+    else the oldest one (the window is then shorter, its start says so). A
+    torrent removed takes its counter with it: never below 0."""
+    rows = [(datetime.fromisoformat(r["date"]).timestamp(), r) for r in history if r.get("key") == key]
+    if not rows:
+        return None, None
+    old = [x for x in rows if x[0] <= now - days * DAY]
+    ts, base = max(old, key=lambda x: x[0]) if old else min(rows, key=lambda x: x[0])
+    return max(up_now - int(base["uploaded"]), 0), datetime.fromtimestamp(ts).astimezone().isoformat(timespec="minutes")
 
 
 def write(cfg, snap):
@@ -81,6 +98,20 @@ def write(cfg, snap):
             ]
             for t in snap["trackers"]
         ],
+        delim,
+    )
+
+    # Ratios: windows computed from the history before this run is appended.
+    ratio_path = os.path.join(out, "history-ratios.csv")
+    ratio_history = read_history(ratio_path, delim)
+    now = datetime.fromisoformat(date).timestamp()
+    for r in snap.get("ratios", []):
+        for days in (7, 30):
+            r[f"up_{days}d"], r[f"up_{days}d_since"] = upload_since(ratio_history, r["key"], r["up"], now, days)
+    _append(
+        ratio_path,
+        RATIO_HISTORY_HEADER,
+        [[date, r["key"], r["up"], r["down"], r["torrents"]] for r in snap.get("ratios", [])],
         delim,
     )
 

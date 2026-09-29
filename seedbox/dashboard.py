@@ -100,26 +100,28 @@ PAGE = """<!DOCTYPE html>
 <section id="overview">
   <div class="grid">
     <div class="card kpi c3" id="k-coverage"></div>
-    <div class="card kpi c3" id="k-library"></div>
-    <div class="card kpi c3" id="k-uploaded"></div>
+    <div class="card kpi c3" id="k-volume" data-live></div>
+    <div class="card kpi c3" id="k-indexers"></div>
+    <div class="card kpi c3" id="k-unsearched"></div>
+
+    <div id="ratio-slot" hidden></div>
+
     <div class="card kpi c3" id="k-problems"></div>
     <div class="card kpi c3" id="k-dups"></div>
+    <div class="card kpi c3" id="k-errors"></div>
+    <div class="card kpi c3" id="k-undeclared"></div>
+
+    <div class="card kpi c3" id="k-categories"></div>
+    <div class="card kpi c3" id="k-opportunity"></div>
     <div class="card kpi c3" id="k-queue" data-live></div>
     <div class="card kpi c3" id="k-rechecks" data-live></div>
-    <div class="card kpi c3" id="k-volume" data-live></div>
-    <div class="card kpi c3" id="k-errors"></div>
-    <div class="card kpi c3" id="k-opportunity"></div>
-    <div class="card kpi c3" id="k-unsearched"></div>
-    <div class="card kpi c3" id="k-indexers"></div>
-    <div class="card kpi c6" id="k-categories"></div>
-    <div class="card kpi c6" id="k-undeclared"></div>
 
-    <div class="card c5"><div class="card-head"><h3>Library by seeding status</h3></div><div class="chart" id="c-status"></div></div>
-    <div class="card c7"><div class="card-head"><h3>Coverage by tracker</h3><span class="sub muted small">share of the library each tracker seeds</span></div><div class="chart" id="c-trackers"></div></div>
-    <div class="card c8"><div class="card-head"><h3>Torrents added per day</h3><span class="sub muted small">last 60 days</span></div><div class="chart" id="c-added"></div></div>
+    <div class="card c4"><div class="card-head"><h3>Library by seeding status</h3></div><div class="chart" id="c-status"></div></div>
+    <div class="card c8"><div class="card-head"><h3>Coverage by tracker</h3><span class="sub muted small">share of the library each tracker seeds</span></div><div class="chart" id="c-trackers"></div></div>
     <div class="card c4"><div class="card-head"><h3>Torrent states</h3></div><div class="chart" id="c-states"></div></div>
+    <div class="card c8"><div class="card-head"><h3>Torrents added per day</h3><span class="sub muted small">last 60 days</span></div><div class="chart" id="c-added"></div></div>
     <div class="card c8"><div class="card-head"><h3>Seeded entries over time</h3><span class="sub muted small">per tracker, stacked: an entry on two trackers counts twice</span></div><div class="chart" id="c-timeline"></div></div>
-    <div class="card c4"><div class="card-head"><h3>Coverage at each collection</h3></div><div class="chart" id="c-history"></div></div>
+    <div class="card c4"><div class="card-head"><h3>Library coverage</h3><span class="sub muted small">since the first torrent</span></div><div class="chart" id="c-history"></div></div>
   </div>
 </section>
 

@@ -47,12 +47,19 @@ def read(path, aliases, indexer_keys):
 def _read(db, aliases, indexer_keys):
     # cross-seed names its indexers as Prowlarr does: map them to tracker keys.
     indexers = {}
-    for ident, name, active, status in db.execute("SELECT id, name, active, status FROM indexer"):
+    try:
+        rows = db.execute("SELECT id, name, active, status, retry_after FROM indexer").fetchall()
+    except sqlite3.Error:  # older schema, no retry_after
+        rows = [r + (None,) for r in db.execute("SELECT id, name, active, status FROM indexer")]
+    for ident, name, active, status, retry_after in rows:
         name = name or ""
         indexers[ident] = {
             "name": name,
             "active": bool(active),
             "status": status or "",
+            # Epoch ms: cross-seed keeps the status until it queries the indexer again,
+            # so a limit whose retry time is past is over, whatever the status says.
+            "retry_after": retry_after or 0,
             "key": indexer_keys.get(name.lower()) or aliases.get(name.lower()),
         }
 
@@ -86,7 +93,13 @@ def _read(db, aliases, indexer_keys):
     return {
         "titles": titles,
         "indexers": [
-            {"name": i["name"], "key": i["key"], "active": i["active"], "status": i["status"]}
+            {
+                "name": i["name"],
+                "key": i["key"],
+                "active": i["active"],
+                "status": i["status"],
+                "retry_after": i["retry_after"],
+            }
             for i in indexers.values()
         ],
         "searchees": searchees,

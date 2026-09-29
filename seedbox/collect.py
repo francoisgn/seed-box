@@ -182,6 +182,7 @@ def _torrent_record(cfg, torrent, keys, files, tracker_errors=()):
         "content_path": torrent.get("content_path", ""),
         "size": torrent.get("size") or 0,
         "uploaded": torrent.get("uploaded") or 0,
+        "downloaded": torrent.get("downloaded") or 0,
         "ratio": round(torrent.get("ratio") or 0, 2),
         "seeding_time": torrent.get("seeding_time") or 0,
         "auto_tmm": bool(torrent.get("auto_tmm")),
@@ -562,6 +563,19 @@ def _label(cfg, path):
     return path
 
 
+def ratio_table(records, target, names):
+    """Upload and download of the torrents in qBittorrent, per declared tracker
+    (Prowlarr / cross-seed) plus one group for every other tracker."""
+    groups = {k: {"key": k, "name": names.get(k, k), "up": 0, "down": 0, "torrents": 0} for k in target}
+    other = {"key": "other", "name": "Other trackers", "up": 0, "down": 0, "torrents": 0}
+    for r in records:
+        g = groups.get(r.get("tracker")) or other
+        g["up"] += r.get("uploaded") or 0
+        g["down"] += r.get("downloaded") or 0
+        g["torrents"] += 1
+    return sorted(groups.values(), key=lambda g: g["name"].lower()) + [other]
+
+
 def link_folders(cfg):
     """Cross-seed link folders on disk: each link_dirs name next to a library root."""
     seen = []
@@ -656,15 +670,21 @@ def run(cfg, log, progress=lambda msg: None):
     # "Everywhere" = on every enabled Prowlarr tracker (or every tracker seen).
     target = {k for k, v in indexers.items() if v.get("enabled")} or {r["key"] for r in rows}
     duplicates = diagnose(entries, records, target)
+    names = {r["key"]: r["name"] for r in rows}
+    names.update({k: v["name"] for k, v in indexers.items()})
+    ratios = ratio_table(records, target, names)
 
     progress("Reading cross-seed history")
     indexer_keys = {v["name"].lower(): k for k, v in indexers.items()}
     xs = crossseed.read(cfg.cross_seed_db, cfg.tracker_aliases, indexer_keys)
     search = search_status(cfg, entries, xs, target) if xs else None
     if xs:
+        now_ms = time.time() * 1000
         for idx in xs["indexers"]:
-            if idx["status"] and idx["status"] != "OK":
-                warn(f"cross-seed: indexer {idx['name']} is {idx['status']}, its searches are on hold")
+            # A limit whose retry time is past is over: cross-seed just has not queried the indexer since.
+            if idx["status"] and idx["status"] != "OK" and idx.get("retry_after", 0) > now_ms:
+                until = datetime.fromtimestamp(idx["retry_after"] / 1000).astimezone().strftime("%H:%M")
+                warn(f"cross-seed: indexer {idx['name']} is {idx['status']} until {until}, its searches are on hold")
 
     counts = {s: sum(1 for e in entries if e.status == s) for s in ("seeded", "incomplete", "orphan")}
     coverage = {c: sum(1 for e in entries if e.coverage == c) for c in ("everywhere", "partial", "none")}
@@ -732,6 +752,7 @@ def run(cfg, log, progress=lambda msg: None):
         "duplicates": duplicates,
         "unmatched": unmatched,
         "orphan_links": orphan_links(cfg, records),
+        "ratios": ratios,
         "folders": folders(cfg, entries),
         "timeline": timeline(entries, records, rows),
         "added": added_per_day(records),

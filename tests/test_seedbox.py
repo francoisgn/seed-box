@@ -397,6 +397,34 @@ class FakeQbtStatus:
         ]
 
 
+class Ratios(unittest.TestCase):
+    def test_ratio_table(self):
+        records = [
+            {"tracker": "a.example", "uploaded": 30, "downloaded": 10},
+            {"tracker": "a.example", "uploaded": 10, "downloaded": 0},
+            {"tracker": "public.example", "uploaded": 5, "downloaded": 5},
+            {"tracker": "", "uploaded": 1, "downloaded": 0},
+        ]
+        rows = collect.ratio_table(records, {"a.example", "b.example"}, {"a.example": "Alpha", "b.example": "Beta"})
+        self.assertEqual([(r["name"], r["up"], r["down"], r["torrents"]) for r in rows],
+                         [("Alpha", 40, 10, 2), ("Beta", 0, 0, 0), ("Other trackers", 6, 5, 2)])  # fmt: skip
+
+    def test_upload_windows(self):
+        day = report.DAY
+        hist = [
+            {"date": "2026-09-01T00:00:00+00:00", "key": "a", "uploaded": "100"},
+            {"date": "2026-09-20T00:00:00+00:00", "key": "a", "uploaded": "400"},
+            {"date": "2026-09-27T00:00:00+00:00", "key": "a", "uploaded": "700"},
+        ]
+        now = datetime.fromisoformat("2026-09-29T00:00:00+00:00").timestamp()
+        self.assertEqual(report.upload_since(hist, "a", 1000, now, 7)[0], 600)  # from 09-20
+        up, since = report.upload_since(hist, "a", 1000, now, 60)  # history shorter: from the oldest row
+        self.assertEqual((up, since[:10]), (900, "2026-09-01"))
+        self.assertEqual(report.upload_since(hist, "a", 50, now, 7)[0], 0)  # torrents removed: never negative
+        self.assertEqual(report.upload_since(hist, "b", 5, now, 7), (None, None))
+        self.assertEqual(day, 86400)
+
+
 class Unreadable(unittest.TestCase):
     def test_mode_000_once_per_inode(self):
         from seedbox import cli
