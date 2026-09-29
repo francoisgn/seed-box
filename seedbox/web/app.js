@@ -382,10 +382,11 @@ function api(path, body) {
 }
 
 // Confirmation dialog; resolves with the checkbox value (or false), rejects on cancel.
-function confirmDialog(title, body, okLabel, checkbox) {
+function confirmDialog(title, body, okLabel, checkbox, checked) {
   return new Promise(function (resolve, reject) {
     var d = $('dialog'); clear(d);
     var box = checkbox ? el('input', {type: 'checkbox'}) : null;
+    if (box && checked) box.checked = true;
     var cancel = el('button', {'class': 'btn', text: 'Cancel', type: 'button'});
     var ok = el('button', {'class': 'btn filled', text: okLabel, type: 'button'});
     d.appendChild(el('h3', {text: title}));
@@ -411,12 +412,14 @@ function act(action, hashes, extra, label) {
     refreshLive();
   }).catch(function (e) { toast('Failed: ' + e.message); });
 }
-function confirmAct(action, hashes, title, body, extra) {
+// withFiles: the "also delete" box starts ticked (link torrents whose removal would
+// otherwise leave orphan link files behind).
+function confirmAct(action, hashes, title, body, extra, withFiles) {
   var linkOnly = hashes.every(function (h) { return BYHASH[h] && BYHASH[h].link; });
   var transient = hashes.every(function (h) { return isTransient(BYHASH[h]); });
   var box = action !== 'remove' ? null : linkOnly ? 'Also delete their cross-seed link files (the library copy is kept)'
     : transient ? 'Also delete their files (transient download folder)' : null;
-  return confirmDialog(title, body, ACTION_TEXT[action], box).then(function (checked) {
+  return confirmDialog(title, body, ACTION_TEXT[action], box, withFiles && !!box).then(function (checked) {
     return act(action, hashes, Object.assign({}, extra || {}, action === 'remove' ? {delete_files: checked} : {}));
   }, function () {});
 }
@@ -429,7 +432,7 @@ function fixButton(fix, issue, entry) {
       var keep = BYHASH[issue.keep];
       confirmAct('remove', issue.remove, 'Remove ' + issue.remove.length + ' redundant torrent(s)?',
         'Keeps "' + (keep ? keep.name : issue.keep) + '" (' + (keep ? keep.seeds + ' seeds, ' + bytes(keep.uploaded) + ' uploaded' : '') +
-        '). The library file is never touched.');
+        '). The library file is never touched; unticked, their link files would stay behind as orphans.', null, true);
     }}, [icon('remove', 'sm'), 'Remove ' + issue.remove.length + ' extra']);
   }
   var names = {start: ['start', 'Start'], recheck: ['recheck', 'Recheck'], remove: ['remove', 'Remove torrent'], skip_extras: ['extras', 'Skip missing extras']};
@@ -1224,7 +1227,7 @@ function renderOutside() {
         onclick: function () {
           confirmAct('remove', [u.hash], 'Remove this torrent?', u.name + '. ' + (u.reason === 'link_only'
             ? 'The library copy is already gone: with its link files, the space is freed (unless another torrent uses them).'
-            : 'Its files stay on disk unless they are cross-seed links or transient downloads.'));
+            : 'Its files stay on disk unless they are cross-seed links or transient downloads.'), null, u.reason === 'link_only');
         }}, [icon('remove', 'sm')]) : null])]));
   });
   box.appendChild(el('div', {'class': 'table-wrap'}, [el('table', {}, [el('thead', {}, [el('tr', {}, [
@@ -1233,6 +1236,22 @@ function renderOutside() {
   var legend = el('div', {'class': 'legend'});
   Object.keys(REASONS).forEach(function (k) { legend.appendChild(el('span', {}, [el('b', {style: 'color:var(--t1);font-weight:500', text: REASONS[k][1] + ':'}), REASONS[k][2]])); });
   box.appendChild(legend);
+}
+function renderOrphans() {
+  var box = $('orphans'); clear(box);
+  var o = D.orphan_links;
+  if (!o || !o.count) { box.appendChild(el('p', {'class': 'empty', text: 'No leftover link file: every file in the cross-seed folders belongs to a torrent.'})); return; }
+  box.appendChild(el('p', {'class': 'muted', text: o.count + ' file(s) no torrent uses (torrents removed without their files): ' +
+    bytes(o.bytes) + ' freed by deleting them; the others are extra names of data kept elsewhere.'}));
+  var code = el('code', {text: o.script});
+  box.appendChild(el('div', {'class': 'cell-flex', style: 'justify-content:space-between;flex-wrap:wrap;margin:8px 0'}, [
+    el('span', {'class': 'muted small', text: 'Run on the NAS from the media share root (the folder holding the cross-seed folder). seedbox mounts the media read-only.'}),
+    el('button', {'class': 'btn sm', type: 'button', onclick: function () { copyText(o.script, code); }}, [icon('copy', 'sm'), 'Copy script'])]));
+  box.appendChild(el('div', {'class': 'cmd', style: 'max-height:160px;overflow:auto;align-items:flex-start'}, [code]));
+  box.appendChild(dropList(o.files.slice().sort(function (a, b) { return b.size - a.size; }), function (f) {
+    return el('div', {'class': 'item'}, [el('span', {'class': 'badge ' + (f.links === 1 ? 'warn' : ''), text: f.links === 1 ? 'frees ' + bytes(f.size) : f.links + ' links'}),
+      el('span', {'class': 'name', title: f.path, text: f.path})]);
+  }, 'Show files'));
 }
 function renderWarnings() {
   var box = $('warnings'); clear(box);
@@ -1277,6 +1296,7 @@ function init() {
   renderLibrary();
   renderOutside();
   renderWarnings();
+  renderOrphans();
   renderQueueTiles(); renderActivity(); renderLogs();
   wireNav();
   $('search').addEventListener('input', function (e) {

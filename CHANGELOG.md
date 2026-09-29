@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.0
+
+- Orphan link files: files in the cross-seed folders that no torrent uses
+  (torrents removed without their files), counted at each collection with the
+  space deleting them frees, in the Warnings section with a cleanup script.
+- Removing duplicate extras, or a torrent that only seeds from its cross-seed
+  links: "also delete their link files" is ticked by default, so no orphan is
+  left behind.
+
 ## 1.2.1
 
 - The dashboard page is rebuilt when `seedbox run` starts, from the last

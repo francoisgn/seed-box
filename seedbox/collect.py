@@ -562,6 +562,51 @@ def _label(cfg, path):
     return path
 
 
+def link_folders(cfg):
+    """Cross-seed link folders on disk: each link_dirs name next to a library root."""
+    seen = []
+    for root in cfg.roots:
+        for name in cfg.link_dirs:
+            path = os.path.join(os.path.dirname(root), name)
+            if os.path.isdir(path) and path not in seen:
+                seen.append(path)
+    return seen
+
+
+def orphan_links(cfg, records, limit=500):
+    """Files in the link folders that no torrent uses: leftovers of torrents
+    removed without their files. {'count', 'bytes', 'files', 'script'}.
+
+    bytes: space freed by deleting them (files without another hardlink). The
+    script runs from the media share root (the folder holding the link folder)."""
+    used = {map_path(cfg, r.get("content_path") or "").rstrip("/") for r in records}
+    used.discard("")
+    found, freed = [], 0
+    for folder in link_folders(cfg):
+        base = os.path.dirname(folder)
+        for root, dirs, files in os.walk(folder):
+            dirs[:] = sorted(d for d in dirs if d not in cfg.skip_dirs and not d.startswith("@"))
+            # A torrent folder in use: everything under it belongs to that torrent.
+            if root.rstrip("/") in used:
+                dirs[:] = []
+                continue
+            for name in sorted(files):
+                path = os.path.join(root, name)
+                if path in used:
+                    continue
+                try:
+                    st = os.lstat(path)
+                except OSError:
+                    continue
+                if st.st_nlink == 1:
+                    freed += st.st_size
+                found.append({"path": os.path.relpath(path, base), "size": st.st_size, "links": st.st_nlink})
+    lines = [f'rm -f -- "{f["path"]}"' for f in found]
+    lines += [f'find "{os.path.relpath(folder, os.path.dirname(folder))}" -mindepth 2 -type d -empty -delete'
+              for folder in link_folders(cfg)] if found else []  # fmt: skip
+    return {"count": len(found), "bytes": freed, "files": found[:limit], "script": "\n".join(lines)}
+
+
 def run(cfg, log, progress=lambda msg: None):
     """Full collection. Returns the snapshot dict written by the report module."""
     started = time.time()
@@ -686,6 +731,7 @@ def run(cfg, log, progress=lambda msg: None):
         "torrents": records,
         "duplicates": duplicates,
         "unmatched": unmatched,
+        "orphan_links": orphan_links(cfg, records),
         "folders": folders(cfg, entries),
         "timeline": timeline(entries, records, rows),
         "added": added_per_day(records),

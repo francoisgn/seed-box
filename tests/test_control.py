@@ -337,6 +337,30 @@ class CrossSeed(unittest.TestCase):
         self.assertEqual([(i["code"], i["fixes"]) for i in gone["issues"]], [("tracker_error", [])])
 
 
+class OrphanLinks(unittest.TestCase):
+    def test_leftover_link_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            media = os.path.join(tmp, "media")
+            films, links = os.path.join(media, "films"), os.path.join(media, ".cross-seed", "tracker-a")
+            touch(os.path.join(films, "Kept.mkv"), 5)
+            touch(os.path.join(links, "Used.mkv"), 3)
+            touch(os.path.join(links, "Pack", "e01.mkv"), 3)
+            touch(os.path.join(links, "Alone.mkv"), 7)
+            os.link(os.path.join(films, "Kept.mkv"), os.path.join(links, "Other.Name.mkv"))
+            cfg = load_cfg([films], os.path.join(tmp, "out"), path_map={"/video": media})
+            records = [
+                {"content_path": "/video/.cross-seed/tracker-a/Used.mkv"},
+                {"content_path": "/video/.cross-seed/tracker-a/Pack"},
+            ]
+            o = collect.orphan_links(cfg, records)
+            self.assertEqual(sorted(f["path"] for f in o["files"]),
+                             [".cross-seed/tracker-a/Alone.mkv", ".cross-seed/tracker-a/Other.Name.mkv"])  # fmt: skip
+            # Only the file without another hardlink frees space.
+            self.assertEqual((o["count"], o["bytes"]), (2, 7))
+            self.assertIn('rm -f -- ".cross-seed/tracker-a/Alone.mkv"', o["script"])
+            self.assertIn('find ".cross-seed" -mindepth 2 -type d -empty -delete', o["script"])
+
+
 class Categories(unittest.TestCase):
     def test_check_and_actions(self):
         with tempfile.TemporaryDirectory() as tmp:

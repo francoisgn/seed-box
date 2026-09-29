@@ -93,6 +93,7 @@ PAGE = """<!DOCTYPE html>
   <div class="grid">
     <div class="card c12"><div class="card-head"><h3>Collection warnings</h3></div><div id="warnings"></div></div>
     <div class="card c12"><div class="card-head"><h3>Torrents outside the library</h3><span class="sub muted small">matched to no library entry, with the reason</span></div><div id="outside"></div></div>
+    <div class="card c12"><div class="card-head"><h3>Orphan link files</h3><span class="sub muted small">in the cross-seed folders, used by no torrent</span></div><div id="orphans"></div></div>
   </div>
 </section>
 
