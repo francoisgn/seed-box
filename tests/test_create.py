@@ -199,6 +199,18 @@ class Jobs(unittest.TestCase):
             create.start(self.cfg, FakeQbt(), self.snapshot, 0, KEY, FIELDS)
 
 
+class AddTorrent(unittest.TestCase):
+    def test_files_stay_in_the_save_path(self):
+        from seedbox import qbittorrent
+
+        client = qbittorrent.QbtClient("http://qbt.example")
+        with mock.patch.object(qbittorrent, "request", return_value=(200, "", {})) as req:
+            client.add_torrent(b"d4:infod4:name1:xee", "/video/films", "films", stopped=True)
+        body = req.call_args.args[1]
+        self.assertIn(b'name="useDownloadPath"\r\n\r\nfalse', body)
+        self.assertIn(b'name="savepath"\r\n\r\n/video/films', body)
+
+
 class Http(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.7.1
+
+- Torrents added by seedbox (release matching inject, Seed of a created
+  torrent) no longer go to qBittorrent's incomplete-downloads folder ("Keep
+  incomplete torrents in"): the recheck of an injected release looked there,
+  found nothing and stayed at 0 %.
+
 ## 1.7.0
 
 - Library: 10 entries at first, then pages of 20 (first, last and nearby

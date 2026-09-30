@@ -129,12 +129,16 @@ class QbtClient:
     def add_torrent(self, content, save_path, category="", stopped=True, layout="NoSubfolder", skip_checking=False):
         """Add a .torrent: files straight in save_path (no root folder) unless layout
         says otherwise, no automatic management (it would move the files to the
-        category folder). skip_checking: seed at once, the data is known complete."""
+        category folder), never in qBittorrent's incomplete-downloads folder: the
+        files are already in save_path, a check must look there. skip_checking:
+        seed at once, the data is known complete."""
         fields = {
             "savepath": save_path,
             "category": category,
             "autoTMM": "false",
             "contentLayout": layout,
+            # "Keep incomplete torrents in" would point an unchecked torrent at an empty temp folder.
+            "useDownloadPath": "false",
             "skip_checking": "true" if skip_checking else "false",
             # "stopped" since qBittorrent 5.0, "paused" before.
             "stopped": "true" if stopped else "false",
