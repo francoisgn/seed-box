@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.1
+
+- Same content as 1.6.0 below: the `v1.6.0` tag (and its image) was set on
+  the 1.5.0 commit by mistake, and tags cannot be moved. Use 1.6.1.
+
 ## 1.6.0
 
 - Tracker upload: a release form before creating the `.torrent`, prefilled
