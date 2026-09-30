@@ -11,7 +11,7 @@ import time
 import unittest
 from unittest import mock
 
-from seedbox import actions, cli, config, create
+from seedbox import actions, cli, config, create, nfo
 from seedbox import torrentfile as tf
 
 KEY = "tracker-a.example"
@@ -119,6 +119,12 @@ class Build(unittest.TestCase):
         self.assertEqual(meta["pieces"], [hashlib.sha1(episode + b"subtitles").digest()])
 
 
+FIELDS = {"title": "Some Entry", "year": "2020", "language": "MULTI", "resolution": "1080p",
+          "video_codec": "x264", "audio_codec": "AC3"}  # fmt: skip
+DESCRIBED = {"fields": {}, "missing": [], "details": {"audio": [], "subtitles": [], "files": 1}, "report": "General\n"}
+
+
+@mock.patch.object(nfo, "describe", lambda *a: DESCRIBED)
 class Jobs(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -138,8 +144,8 @@ class Jobs(unittest.TestCase):
     def test_create_then_seed(self):
         qbt = FakeQbt()
         with self.assertRaises(create.CreateError):
-            create.start(self.cfg, qbt, self.snapshot, 0, "tracker-b.example")  # already seeded there
-        job = wait(self.cfg, create.start(self.cfg, qbt, self.snapshot, 0, KEY)["id"])
+            create.start(self.cfg, qbt, self.snapshot, 0, "tracker-b.example", FIELDS)  # already seeded there
+        job = wait(self.cfg, create.start(self.cfg, qbt, self.snapshot, 0, KEY, FIELDS)["id"])
         self.assertEqual(job["status"], "done", job.get("note"))
         path = create.path_for(self.cfg, job)
         self.assertEqual(os.stat(path).st_mode & 0o777, 0o600)
@@ -148,6 +154,12 @@ class Jobs(unittest.TestCase):
         self.assertIn(b"SECRETPASSKEY", data)
         self.assertEqual(tf.parse(data)["infohash"], job["hash"])
         self.assertNotIn("SECRETPASSKEY", json.dumps(actions.load_jobs(self.cfg)))
+        with open(create.path_for(self.cfg, job, "nfo"), encoding="utf-8") as handle:
+            text = handle.read()
+        self.assertIn("Title       : Some Entry", text)
+        self.assertIn("---- MediaInfo ----", text)
+        with self.assertRaisesRegex(nfo.NfoError, "Year"):
+            create.start(self.cfg, qbt, self.snapshot, 0, KEY, dict(FIELDS, year=" "))
 
         seeded = create.seed(self.cfg, qbt, job["id"])
         self.assertEqual(qbt.added, [(job["hash"], self.root, False, "Original", True)])
@@ -160,7 +172,7 @@ class Jobs(unittest.TestCase):
         self.cfg.created_max = 2
         qbt, done = FakeQbt(), []
         for _ in range(3):
-            job = wait(self.cfg, create.start(self.cfg, qbt, self.snapshot, 0, KEY)["id"])
+            job = wait(self.cfg, create.start(self.cfg, qbt, self.snapshot, 0, KEY, FIELDS)["id"])
             done.append(job["id"])
             time.sleep(0.02)  # distinct mtimes
         jobs = {j["id"]: j for j in actions.load_jobs(self.cfg)}
@@ -170,12 +182,13 @@ class Jobs(unittest.TestCase):
             create.seed(self.cfg, qbt, done[0])
         create.delete(self.cfg, done[1])
         self.assertFalse(os.path.exists(create.path_for(self.cfg, {"id": done[1]})))
-        self.assertEqual(len(os.listdir(os.path.join(self.cfg.output_dir, "created"))), 1)
+        self.assertEqual(sorted(os.listdir(os.path.join(self.cfg.output_dir, "created"))),
+                         [f"{done[2]}.nfo", f"{done[2]}.torrent"])  # fmt: skip
         with self.assertRaises(create.CreateError):
             create.delete(self.cfg, done[1])
 
     def test_file_changed_before_seeding(self):
-        job = wait(self.cfg, create.start(self.cfg, FakeQbt(source=""), self.snapshot, 0, KEY)["id"])
+        job = wait(self.cfg, create.start(self.cfg, FakeQbt(source=""), self.snapshot, 0, KEY, FIELDS)["id"])
         write(self.film, b"shorter")
         with self.assertRaises(create.CreateError):
             create.seed(self.cfg, FakeQbt(), job["id"])
@@ -183,7 +196,7 @@ class Jobs(unittest.TestCase):
     def test_unknown_announce(self):
         self.snapshot["torrents"] = []
         with self.assertRaises(create.CreateError):
-            create.start(self.cfg, FakeQbt(), self.snapshot, 0, KEY)
+            create.start(self.cfg, FakeQbt(), self.snapshot, 0, KEY, FIELDS)
 
 
 class Http(unittest.TestCase):
@@ -218,6 +231,11 @@ class Http(unittest.TestCase):
         self.assertEqual((status, body), (200, b"d8:announce6:secrete"))
         self.assertIn(f"Some.Entry.{KEY}.torrent", disposition)
         self.assertEqual(self.get("/api/created?job=nope")[0], 404)
+        write(create.path_for(self.cfg, self.job, "nfo"), b"Title : Some Entry")
+        status, disposition, body = self.get(f"/api/created?job={self.job['id']}&file=nfo")
+        self.assertEqual((status, body), (200, b"Title : Some Entry"))
+        self.assertIn("Some.Entry.nfo", disposition)
+        self.assertEqual(self.get(f"/api/created?job={self.job['id']}&file=../x")[0], 400)
         self.cfg.actions = False
         self.assertEqual(self.get(f"/api/created?job={self.job['id']}")[0], 403)
 

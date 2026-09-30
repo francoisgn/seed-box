@@ -10,7 +10,9 @@ server, instead of reading them over the network from another machine.
   trackers require it, and it is part of the infohash);
 - private flag set, piece size from the total size;
 - content: a film file on its own (its sidecars stay out), or a folder (a
-  season, a film with its extras) with every file the entry counts.
+  season, a film with its extras) with every file the entry counts;
+- a .nfo beside it (not in the torrent): the fields the tracker's form asks
+  for, from the name and MediaInfo, checked and completed in the dashboard.
 
 Hashing reads every byte once, sequentially, one job at a time: the disks are
 shared with qBittorrent. The page downloads the .torrent as soon as it is
@@ -23,6 +25,7 @@ check skipped (its files were just hashed). If the tracker hands back another
 .torrent (a dupe, or a rewritten one), add that one by hand instead.
 """
 
+import contextlib
 import glob
 import hashlib
 import json
@@ -31,7 +34,7 @@ import threading
 import time
 from collections import Counter
 
-from seedbox import __version__, actions, library, match, trackers
+from seedbox import __version__, actions, library, match, nfo, trackers
 from seedbox import torrentfile as tf
 from seedbox.api import ApiError
 from seedbox.config import unmap_path
@@ -149,8 +152,8 @@ def _dir(cfg):
     return os.path.join(cfg.output_dir, "created")
 
 
-def path_for(cfg, job):
-    return os.path.join(_dir(cfg), f"{job['id']}.torrent")
+def path_for(cfg, job, ext="torrent"):
+    return os.path.join(_dir(cfg), f"{job['id']}.{ext}")
 
 
 def _make_room(cfg):
@@ -162,26 +165,53 @@ def _make_room(cfg):
             os.remove(old)
         except OSError:
             continue
+        _remove_nfo(cfg, job_id)
         actions.update_job(cfg, job_id, stored=False, note="replaced by a newer .torrent (limit reached)")
+
+
+def _remove_nfo(cfg, job_id):
+    with contextlib.suppress(OSError):
+        os.remove(path_for(cfg, {"id": job_id}, "nfo"))
+
+
+def describe(cfg, snapshot, index):
+    """What the .nfo will say, for the page to check.
+
+    {'name', 'fields', 'missing', 'details', 'labels', 'mandatory'}"""
+    entry = match._entry(snapshot, index)
+    spec = content(cfg, entry)
+    found = nfo.describe(spec["name"], match.main_file(cfg, entry), len(spec["files"]))
+    return {
+        "name": spec["name"],
+        "fields": found["fields"],
+        "missing": found["missing"],
+        "details": found["details"],
+        "labels": nfo.LABELS,
+        "mandatory": list(nfo.MANDATORY),
+    }
 
 
 def delete(cfg, job_id):
     """Delete a created file by hand. Returns the job."""
     job = created_job(cfg, job_id)
     os.remove(path_for(cfg, job))
+    _remove_nfo(cfg, job_id)
     actions.update_job(cfg, job_id, stored=False, note="deleted")
     return {**job, "stored": False}
 
 
-def start(cfg, qbt, snapshot, index, key):
-    """Validate, then hash in the background. Returns the job."""
+def start(cfg, qbt, snapshot, index, key, fields):
+    """Validate, write the .nfo text, then hash in the background. Returns the job."""
     if key not in (snapshot.get("summary", {}).get("target_trackers") or []):
         raise CreateError(f"unknown tracker: {key}")
     entry = match._entry(snapshot, index)
     if key in (entry.get("trackers") or []):
         raise CreateError(f"already seeded on {key}")
     spec = content(cfg, entry)
+    fields = nfo.clean_fields(fields)
     announce, source = tracker_setup(cfg, qbt, snapshot, key)
+    found = nfo.describe(spec["name"], match.main_file(cfg, entry), len(spec["files"]))
+    text = nfo.render(spec["name"], fields, found["details"], found["report"], spec["total"])
     job = actions.add_job(
         cfg,
         {
@@ -196,11 +226,19 @@ def start(cfg, qbt, snapshot, index, key):
             "source": source,
         },
     )
-    threading.Thread(target=_run, args=(cfg, spec, announce, source, job), daemon=True).start()
+    threading.Thread(target=_run, args=(cfg, spec, announce, source, job, text), daemon=True).start()
     return job
 
 
-def _run(cfg, spec, announce, source, job):
+def _write(path, data):
+    """Owner-only: a .torrent holds the passkey."""
+    fd = os.open(path + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "wb") as handle:
+        handle.write(data)
+    os.replace(path + ".tmp", path)
+
+
+def _run(cfg, spec, announce, source, job, nfo_text):
     total = spec["total"]
 
     def progress(done):
@@ -213,12 +251,8 @@ def _run(cfg, spec, announce, source, job):
         meta = tf.parse(data)
         os.makedirs(_dir(cfg), exist_ok=True)
         _make_room(cfg)
-        target = path_for(cfg, job)
-        # Holds the passkey: owner only.
-        fd = os.open(target + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(data)
-        os.replace(target + ".tmp", target)
+        _write(path_for(cfg, job, "nfo"), nfo_text.encode())
+        _write(path_for(cfg, job), data)
         note = f"ready: {len(meta['pieces'])} pieces of {meta['piece_length'] // 1024} KiB"
         actions.update_job(
             cfg,
@@ -275,7 +309,8 @@ def seed(cfg, qbt, job_id):
 def handle(cfg, qbt_factory, body):
     """HTTP helper for POST /api/create: (status code, response dict).
 
-    {"op": "create", "entry": i, "tracker": key} | {"op": "seed" | "delete", "job": id}"""
+    {"op": "describe", "entry": i} | {"op": "create", "entry": i, "tracker": key, "fields": {…}}
+    | {"op": "seed" | "delete", "job": id}"""
     try:
         request = json.loads(body or b"{}")
         if not isinstance(request, dict):
@@ -286,14 +321,19 @@ def handle(cfg, qbt_factory, body):
         return 403, {"error": "actions are disabled ([service] actions = true to enable)"}
     op = request.get("op")
     try:
+        if op == "describe":
+            return 200, describe(cfg, match.load_snapshot(cfg), request.get("entry"))
         if op == "create":
             snapshot = match.load_snapshot(cfg)
-            return 200, {"job": start(cfg, qbt_factory(), snapshot, request.get("entry"), str(request.get("tracker")))}
+            job = start(
+                cfg, qbt_factory(), snapshot, request.get("entry"), str(request.get("tracker")), request.get("fields")
+            )
+            return 200, {"job": job}
         if op == "seed":
             return 200, {"job": seed(cfg, qbt_factory(), str(request.get("job") or ""))}
         if op == "delete":
             return 200, {"job": delete(cfg, str(request.get("job") or ""))}
-    except (CreateError, match.MatchError, tf.TorrentError) as exc:
+    except (CreateError, match.MatchError, tf.TorrentError, nfo.NfoError) as exc:
         return 400, {"error": str(exc)}
     except ApiError as exc:
         return 502, {"error": str(exc)}

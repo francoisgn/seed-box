@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.6.0
+
+- Tracker upload: a release form before creating the `.torrent`, prefilled
+  from the name (title, year, language, source, group) and MediaInfo
+  (resolution, video and audio codecs, channels, bit depth, HDR / Dolby
+  Vision), mandatory fields to complete when missing. A `.nfo` with these
+  fields, the audio and subtitle tracks and the full MediaInfo report is
+  downloaded beside the `.torrent`.
+- The container image now includes `mediainfo`.
+
 ## 1.5.0
 
 - Uploading to a tracker: in an entry's detail, **Create a .torrent for**

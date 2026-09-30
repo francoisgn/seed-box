@@ -1113,31 +1113,68 @@ function createPanel(e) {
   var missingOn = (S.target_trackers || []).filter(function (k) { return e.trackers.indexOf(k) < 0; });
   if (!missingOn.length) return null;
   return el('div', {'class': 'cell-flex', style: 'flex-wrap:wrap'}, [el('b', {text: 'Create a .torrent for'}),
-    el('span', {'class': 'muted small', text: 'hashed on the server, private, announce and source taken from that tracker\'s torrents; upload it, then seed it from Activity, jobs'})]
+    el('span', {'class': 'muted small', text: 'with its .nfo (name + MediaInfo, checked before), hashed on the server, private, announce and source from that tracker\'s torrents; upload both, then Seed from Activity, jobs'})]
     .concat(missingOn.map(function (k) {
       return el('button', {'class': 'btn sm', type: 'button', onclick: function (ev) {
         ev.stopPropagation();
-        var stored = storedTorrents(), max = (L && L.created_max) || 0;
-        var full = max && stored.length >= max ? ' Limit of ' + max + ' stored .torrent files reached: the oldest (' +
-          stored[0].name + ' for ' + (TNAME[stored[0].target] || stored[0].target) + ') is replaced.' : '';
-        confirmDialog('Create a .torrent for ' + (TNAME[k] || k) + '?', e.name + ': reads its ' + bytes(e.size) +
-          ' (' + e.files + ' file(s)' + (e.kind === 'file' ? ', the film file only' : '') + ') once from disk, in the background, one entry at a time. ' +
-          'Downloaded as soon as it is ready, keep this page open.' + full, 'Create')
-          .then(function () {
-            return api('api/create', {op: 'create', entry: e._i, tracker: k}).then(function (r) {
-              toast('Hashing in the background: the download starts when it is ready.'); refreshLive(); awaitCreated(r.job.id);
-            });
-          }, function () {}).catch(function (err) { toast('Failed: ' + err.message); });
+        toast('Reading the file with MediaInfo…');
+        api('api/create', {op: 'describe', entry: e._i}).then(function (desc) { releaseForm(e, k, desc); },
+          function (err) { toast('Failed: ' + err.message); });
       }}, [trackerChip(k)]);
     })));
+}
+// Release fields for the tracker's form and the .nfo: prefilled, mandatory ones required.
+function releaseForm(e, k, desc) {
+  var d = $('dialog'); clear(d);
+  var inputs = {}, create = el('button', {'class': 'btn filled', text: 'Create', type: 'button'});
+  function check() {
+    var missing = desc.mandatory.filter(function (f) { return !inputs[f].value.trim(); });
+    desc.mandatory.forEach(function (f) { inputs[f].classList.toggle('missing', !inputs[f].value.trim()); });
+    create.disabled = missing.length ? true : null;
+    create.title = missing.length ? 'Missing: ' + missing.map(function (f) { return desc.labels[f]; }).join(', ') : '';
+  }
+  var grid = el('div', {'class': 'form-grid'});
+  Object.keys(desc.labels).forEach(function (f) {
+    var mandatory = desc.mandatory.indexOf(f) >= 0;
+    inputs[f] = el('input', {'class': 'select', type: 'text', value: desc.fields[f] || '', 'aria-label': desc.labels[f]});
+    inputs[f].oninput = check;
+    grid.appendChild(el('label', {}, [el('span', {text: desc.labels[f] + (mandatory ? ' *' : '')}), inputs[f]]));
+  });
+  var det = desc.details, tracks = (det.audio || []).map(function (a) {
+    return [a.language.toUpperCase(), a.codec, a.channels].filter(Boolean).join(' ') + (a.title ? ' (' + a.title + ')' : '');
+  });
+  var subs = (det.subtitles || []).map(function (x) { return (x.language.toUpperCase() || '?') + (x.forced ? ' forced' : ''); });
+  var stored = storedTorrents(), max = (L && L.created_max) || 0;
+  d.appendChild(el('h3', {text: 'Upload to ' + (TNAME[k] || k)}));
+  d.appendChild(el('div', {'class': 'body'}, [
+    el('div', {'class': 'small', text: desc.name + ' · ' + bytes(e.size) + (det.files > 1 ? ' · ' + det.files + ' files' : '')}),
+    el('div', {'class': 'faint small', text: 'Audio: ' + (tracks.join(' · ') || 'none') + (subs.length ? ' — subtitles: ' + subs.join(', ') : '')}),
+    grid,
+    el('div', {'class': 'faint small', text: '* mandatory. Checked from the name and MediaInfo; the .nfo also carries the full MediaInfo report. ' +
+      'Creating reads the ' + bytes(e.size) + ' once from disk, in the background; the .torrent and the .nfo download when ready, keep this page open.'}),
+    max && stored.length >= max ? el('div', {'class': 'small', style: 'color:var(--warn)', text: 'Limit of ' + max + ' stored .torrent files reached: the oldest (' +
+      stored[0].name + ' for ' + (TNAME[stored[0].target] || stored[0].target) + ') is replaced.'}) : null]));
+  var cancel = el('button', {'class': 'btn', text: 'Cancel', type: 'button'});
+  d.appendChild(el('div', {'class': 'actions'}, [cancel, create]));
+  cancel.onclick = function () { d.close(); };
+  create.onclick = function () {
+    var fields = {};
+    Object.keys(inputs).forEach(function (f) { fields[f] = inputs[f].value.trim(); });
+    create.disabled = true;
+    api('api/create', {op: 'create', entry: e._i, tracker: k, fields: fields}).then(function (r) {
+      d.close(); toast('Hashing in the background: the downloads start when it is ready.'); refreshLive(); awaitCreated(r.job.id);
+    }, function (err) { create.disabled = null; toast('Failed: ' + err.message); });
+  };
+  check();
+  d.showModal();
 }
 // Stored created files, oldest first (the one replaced when the limit is reached).
 function storedTorrents() {
   return ((L && L.jobs) || []).filter(function (j) { return j.action === 'create' && j.stored; })
     .sort(function (a, b) { return (a.finished || 0) - (b.finished || 0); });
 }
-function downloadCreated(id) {
-  var a = el('a', {href: 'api/created?job=' + encodeURIComponent(id), download: ''});
+function downloadCreated(id, file) {
+  var a = el('a', {href: 'api/created?job=' + encodeURIComponent(id) + (file ? '&file=' + file : ''), download: ''});
   document.body.appendChild(a); a.click(); a.remove();
 }
 // Polls the job, then downloads the .torrent at once.
@@ -1148,7 +1185,7 @@ function awaitCreated(id) {
       var j = (st.jobs || []).filter(function (x) { return x.id === id; })[0];
       if (!j || j.status === 'running' || j.status === 'pending') return;
       clearInterval(timer); refreshLive();
-      if (j.status === 'done') { downloadCreated(id); toast(j.name + '.torrent ready: upload it to ' + (TNAME[j.target] || j.target) + ', then Seed it from Activity, jobs.'); }
+      if (j.status === 'done') { downloadCreated(id); setTimeout(function () { downloadCreated(id, 'nfo'); }, 800); toast(j.name + ': .torrent and .nfo ready, upload them to ' + (TNAME[j.target] || j.target) + ', then Seed it from Activity, jobs.'); }
       else toast('Creation failed: ' + (j.note || 'unknown error'));
     }).catch(function () {});
   }, 5000);
@@ -1157,6 +1194,7 @@ function createdButtons(j) {
   if (j.action !== 'create' || j.status !== 'done' || !j.stored || !D.actions) return null;
   return el('div', {'class': 'chips'}, [
     el('button', {'class': 'btn sm', type: 'button', title: 'Download it again', onclick: function (ev) { ev.stopPropagation(); downloadCreated(j.id); }}, [icon('collect', 'sm'), '.torrent']),
+    el('button', {'class': 'btn sm', type: 'button', title: 'Download the .nfo again', onclick: function (ev) { ev.stopPropagation(); downloadCreated(j.id, 'nfo'); }}, [icon('collect', 'sm'), '.nfo']),
     el('button', {'class': 'btn sm', type: 'button', title: 'Add it to qBittorrent, hash check skipped', onclick: function (ev) {
       ev.stopPropagation();
       confirmDialog('Seed ' + j.name + '?', 'Once uploaded to ' + (TNAME[j.target] || j.target) + ': adds this torrent to qBittorrent on the library files, ' +

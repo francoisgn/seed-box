@@ -179,7 +179,7 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
     POST /api/action   move, recheck, start, skip extras, remove ([service] actions)
     POST /api/match    release matching: search, verify, apply ([service] actions)
     POST /api/create   create a .torrent for a tracker, then seed it ([service] actions)
-    GET  /api/created  download a created .torrent (?job=id, [service] actions)
+    GET  /api/created  download a created .torrent or its .nfo (?job=id&file=nfo, [service] actions)
     POST /api/errors/clear  hide the qBittorrent warnings and errors logged so far
 
     POSTs need the X-Seedbox header and a JSON body: a page from another site
@@ -226,7 +226,7 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
         if path == "/api/collect":
             return self._send(200, self.service.collect_state())
         if path == "/api/created":
-            return self._created(params.get("job", ""))
+            return self._created(params.get("job", ""), params.get("file", "torrent"))
         created = os.path.realpath(os.path.join(self.cfg.output_dir, "created"))
         served = os.path.realpath(self.translate_path(self.path))
         if served == created or served.startswith(created + os.sep):
@@ -234,18 +234,25 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
             return self._send(404, {"error": "not found"})
         return super().do_GET()
 
-    def _created(self, job_id):
+    def _created(self, job_id, kind):
         if not self.cfg.actions:
             return self._send(403, {"error": "actions are disabled ([service] actions = true to enable)"})
+        if kind not in ("torrent", "nfo"):
+            return self._send(400, {"error": "file: torrent or nfo"})
         try:
             job = create.created_job(self.cfg, job_id)
-            with open(create.path_for(self.cfg, job), "rb") as handle:
+            with open(create.path_for(self.cfg, job, kind), "rb") as handle:
                 data = handle.read()
         except (create.CreateError, OSError) as exc:
             return self._send(404, {"error": str(exc)})
-        filename = urllib.parse.quote(f"{job['name']}.{job['target']}.torrent")
+        stem, ext = os.path.splitext(job["name"])
+        stem = stem if ext.lower() in self.cfg.media_ext else job["name"]
+        name = f"{job['name']}.{job['target']}.torrent" if kind == "torrent" else f"{stem}.nfo"
+        filename = urllib.parse.quote(name)
         self.send_response(200)
-        self.send_header("Content-Type", "application/x-bittorrent")
+        self.send_header(
+            "Content-Type", "application/x-bittorrent" if kind == "torrent" else "text/plain; charset=utf-8"
+        )
         self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{filename}")
         self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(data)))

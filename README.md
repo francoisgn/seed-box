@@ -120,8 +120,16 @@ the `.torrent` goes to the tracker; the data leaves by seeding.
 - **Content**: the film file alone (sidecars stay out), or the whole folder of a
   season or a film with extras, NAS metadata (`@eaDir`, dot files) left out.
   Private flag set, piece size from the total size (256 KiB to 16 MiB).
+- **Release form and `.nfo`**: before creating, a form shows what the upload
+  form of the tracker asks for, prefilled from the release name (title, year,
+  language, source, group) and from [MediaInfo](https://mediaarea.net/MediaInfo)
+  (resolution, video and audio codecs, channels, bit depth, HDR / Dolby
+  Vision; the audio tracks give the language when the name does not).
+  Title, year, language, resolution and codecs are mandatory: fill in what is
+  missing. The `.nfo` (these fields, the audio and subtitle tracks, then the
+  full MediaInfo report) comes beside the `.torrent`, not inside it.
 - **Hashing** reads every byte once, as a background job, one entry at a time.
-- The page **downloads it as soon as it is ready**. Upload it to the tracker by
+- The page **downloads the `.torrent` and the `.nfo` as soon as they are ready**. Upload it to the tracker by
   hand, then **Seed** it from Activity, jobs: the torrent is added to
   qBittorrent on the library files, hash check skipped. If the tracker hands
   back another `.torrent` (a dupe, a rewritten one), add that one to qBittorrent
