@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.2
+
+- A created `.torrent` and its `.nfo` download once: the page polled every
+  5 s without waiting for the answer, and `/api/status` can take longer, so
+  each overlapping answer started the downloads again.
+
 ## 1.7.1
 
 - Torrents added by seedbox (release matching inject, Seed of a created

@@ -1202,18 +1202,24 @@ function downloadCreated(id, file) {
   var a = el('a', {href: 'api/created?job=' + encodeURIComponent(id) + (file ? '&file=' + file : ''), download: ''});
   document.body.appendChild(a); a.click(); a.remove();
 }
-// Polls the job, then downloads the .torrent at once.
+// Polls the job, then downloads the .torrent and the .nfo once. One request at
+// a time: /api/status can take longer than the poll period, and overlapping
+// answers would each start the downloads.
+var AWAITING = {};
 function awaitCreated(id) {
-  var timer = setInterval(function () {
+  if (AWAITING[id]) return;
+  AWAITING[id] = true;
+  function poll() {
     api('api/status').then(function (st) {
       L = st;
       var j = (st.jobs || []).filter(function (x) { return x.id === id; })[0];
-      if (!j || j.status === 'running' || j.status === 'pending') return;
-      clearInterval(timer); refreshLive();
+      if (!j || j.status === 'running' || j.status === 'pending') { setTimeout(poll, 5000); return; }
+      delete AWAITING[id]; refreshLive();
       if (j.status === 'done') { downloadCreated(id); setTimeout(function () { downloadCreated(id, 'nfo'); }, 800); toast(j.name + ': .torrent and .nfo ready, upload them to ' + (TNAME[j.target] || j.target) + ', then Seed it from Activity, jobs.'); }
       else toast('Creation failed: ' + (j.note || 'unknown error'));
-    }).catch(function () {});
-  }, 5000);
+    }, function () { setTimeout(poll, 5000); });
+  }
+  setTimeout(poll, 5000);
 }
 function createdButtons(j) {
   if (j.action !== 'create' || j.status !== 'done' || !j.stored || !D.actions) return null;
