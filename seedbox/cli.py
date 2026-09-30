@@ -376,6 +376,9 @@ def cmd_run(cfg):
     # its whole timeout, then kill (exit 137). Exit right away instead.
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     os.makedirs(cfg.output_dir, exist_ok=True)
+    stopped = actions.interrupted(cfg)
+    if stopped:
+        ui.warn(f"{stopped} background job(s) interrupted by the restart, marked failed")
     service = _Service(cfg)
     _Handler.cfg, _Handler.service = cfg, service
     handler = functools.partial(_Handler, directory=cfg.output_dir)

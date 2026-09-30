@@ -129,6 +129,8 @@ the `.torrent` goes to the tracker; the data leaves by seeding.
   missing. The `.nfo` (these fields, the audio and subtitle tracks, then the
   full MediaInfo report) comes beside the `.torrent`, not inside it.
 - **Hashing** reads every byte once, as a background job, one entry at a time.
+  A creation still queued can be cancelled from the jobs list; a restart of
+  seedbox stops the queue (those jobs show as failed, start them again).
 - The page **downloads the `.torrent` and the `.nfo` as soon as they are ready**. Upload it to the tracker by
   hand, then **Seed** it from Activity, jobs: the torrent is added to
   qBittorrent on the library files, hash check skipped. If the tracker hands
@@ -147,14 +149,15 @@ Served by `seedbox run`, the dashboard also shows:
 - **qBittorrent activity**: queued moves and removals with their progress,
   rechecks (running, waiting their turn) and bytes left to read, the disk I/O
   queue and the torrents causing it, latest warnings and errors from its log,
-  busy torrents, jobs sent from the dashboard;
+  busy torrents, jobs sent from the dashboard (the 60 most recent, more
+  while more are still open);
 - **system**: CPU and IO wait, busiest disk, memory, transfer, volume usage,
   sampled every 5 minutes from `/proc` (host-wide in a container) and one light
   qBittorrent call, kept 14 days in `metrics.jsonl`;
 - **seeded entries over time**, per tracker and stacked, rebuilt from the
   torrents' add dates, so the trend is there from the first run.
 
-Auto refresh reloads live panels and metrics every minute. The search box of
+Auto refresh reloads live panels and metrics every 90 s. The search box of
 the Library section filters entries by name, folder or tracker.
 
 ## Deploy (container, remote host)

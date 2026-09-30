@@ -234,6 +234,30 @@ class Diagnosis(unittest.TestCase):
         self.assertEqual(by[("remove", C)], "done")
         self.assertEqual(jobs[0]["target"], "/video/films/archives")
 
+    def test_jobs_kept(self):
+        now = time.time()
+        jobs = [{"id": f"d{i}", "action": "move", "hash": A, "status": "done", "submitted": now - 100 + i, "finished": now - 100 + i}
+                for i in range(80)]  # fmt: skip
+        jobs[0]["stored"] = True  # a created .torrent keeps its job
+        jobs[1]["finished"] = now - actions.KEEP_DONE_S - 1
+        jobs += [
+            {"id": f"o{i}", "action": "remove", "hash": A, "status": "pending", "submitted": now} for i in range(5)
+        ]
+        actions._save_jobs(self.cfg, jobs)
+        kept = actions.refresh(self.cfg, [{"hash": A, "state": "uploading", "save_path": "/x"}])
+        ids = [j["id"] for j in kept]
+        self.assertEqual(len(kept), actions.KEEP_JOBS)
+        self.assertEqual(ids[:1] + ids[-5:], ["d0"] + [f"o{i}" for i in range(5)])
+        self.assertEqual(ids[1], "d26")  # the newest finished fill the rest
+        # Status changes are saved, and more open jobs than the limit are all kept.
+        self.assertEqual({j["status"] for j in actions.refresh(self.cfg, [])[-5:]}, {"done"})
+        self.assertEqual(actions.load_jobs(self.cfg)[-1]["status"], "done")
+        many = [{"id": f"p{i}", "action": "move", "hash": A, "target": "/y", "status": "pending", "submitted": now}
+                for i in range(70)]  # fmt: skip
+        actions._save_jobs(self.cfg, jobs + many)
+        live = [{"hash": A, "state": "uploading", "save_path": "/x"}]
+        self.assertEqual(len([j for j in actions.refresh(self.cfg, live) if j["status"] == "pending"]), 75)
+
     def test_actions_refuse_library_file_deletion(self):
         self.cfg.actions = True
         library_torrent = {"hash": "f" * 40, "name": "Other", "category": "", "save_path": "/video/films/archives",

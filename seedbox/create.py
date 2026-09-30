@@ -15,7 +15,7 @@ server, instead of reading them over the network from another machine.
   for, from the name and MediaInfo, checked and completed in the dashboard.
 
 Hashing reads every byte once, sequentially, one job at a time: the disks are
-shared with qBittorrent. The page downloads the .torrent as soon as it is
+shared with qBittorrent; a job still queued can be cancelled. The page downloads the .torrent as soon as it is
 ready. A copy stays in <output>/created/ for the "seed" button, at most
 `created_max` of them (the oldest is replaced, or delete them by hand), served
 only through the API with actions enabled: it holds the passkey.
@@ -46,6 +46,8 @@ PROGRESS_S = 20
 SAMPLE_TORRENTS = 3
 
 _one_at_a_time = threading.Lock()
+_queue_lock = threading.Lock()  # a job is either cancelled or started, never both
+_cancelled, _started = set(), set()
 
 
 class CreateError(Exception):
@@ -200,6 +202,19 @@ def delete(cfg, job_id):
     return {**job, "stored": False}
 
 
+def cancel(cfg, job_id):
+    """Cancel a creation still queued (the one hashing goes on). Returns the job."""
+    job = next((j for j in actions.load_jobs(cfg) if j["id"] == job_id and j["action"] == "create"), None)
+    if not job or job["status"] != "running":
+        raise CreateError("this creation is no longer queued")
+    with _queue_lock:
+        if job_id in _started:
+            raise CreateError("already hashing, it runs to the end")
+        _cancelled.add(job_id)
+    actions.update_job(cfg, job_id, status="cancelled", note="cancelled while queued", finished=time.time())
+    return {**job, "status": "cancelled"}
+
+
 def start(cfg, qbt, snapshot, index, key, fields):
     """Validate, write the .nfo text, then hash in the background. Returns the job."""
     if key not in (snapshot.get("summary", {}).get("target_trackers") or []):
@@ -246,6 +261,11 @@ def _run(cfg, spec, announce, source, job, nfo_text):
 
     try:
         with _one_at_a_time:
+            with _queue_lock:
+                if job["id"] in _cancelled:
+                    _cancelled.discard(job["id"])
+                    return
+                _started.add(job["id"])
             progress(0)
             data = build(spec, announce, source, progress)
         meta = tf.parse(data)
@@ -265,6 +285,8 @@ def _run(cfg, spec, announce, source, job, nfo_text):
         )
     except (OSError, CreateError, tf.TorrentError) as exc:
         actions.update_job(cfg, job["id"], note=str(exc), status="failed", finished=time.time())
+    finally:
+        _started.discard(job["id"])
 
 
 def created_job(cfg, job_id):
@@ -310,7 +332,7 @@ def handle(cfg, qbt_factory, body):
     """HTTP helper for POST /api/create: (status code, response dict).
 
     {"op": "describe", "entry": i} | {"op": "create", "entry": i, "tracker": key, "fields": {…}}
-    | {"op": "seed" | "delete", "job": id}"""
+    | {"op": "seed" | "delete" | "cancel", "job": id}"""
     try:
         request = json.loads(body or b"{}")
         if not isinstance(request, dict):
@@ -333,6 +355,8 @@ def handle(cfg, qbt_factory, body):
             return 200, {"job": seed(cfg, qbt_factory(), str(request.get("job") or ""))}
         if op == "delete":
             return 200, {"job": delete(cfg, str(request.get("job") or ""))}
+        if op == "cancel":
+            return 200, {"job": cancel(cfg, str(request.get("job") or ""))}
     except (CreateError, match.MatchError, tf.TorrentError, nfo.NfoError) as exc:
         return 400, {"error": str(exc)}
     except ApiError as exc:

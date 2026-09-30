@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.7.3
+
+- A `.torrent` creation still queued can be cancelled from the jobs list (the
+  one hashing runs to the end).
+- A seedbox restart marks the background jobs it stopped as failed right away,
+  instead of leaving them running for 13 hours.
+- Jobs list: job statuses are saved when they change (removals and category
+  moves stayed "pending" and old jobs piled up); it keeps the 60 most recent
+  jobs, more only while more are open, in pages of 30 without a page limit.
+- Auto refresh every 90 s instead of 60 s.
+
 ## 1.7.2
 
 - A created `.torrent` and its `.nfo` download once: the page polled every

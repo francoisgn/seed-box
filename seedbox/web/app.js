@@ -670,7 +670,7 @@ function openJobs() {
   return {jobs: jobs, logMoves: logMoves};
 }
 function jobBadge(status) {
-  var cls = {pending: 'warn', running: 'info', done: 'ok', failed: 'ko'}[status] || '';
+  var cls = {pending: 'warn', running: 'info', done: 'ok', failed: 'ko', cancelled: ''}[status] || '';
   return el('span', {'class': 'badge ' + cls}, [status === 'running' ? icon('refresh', 'sm spin') : null, status]);
 }
 function dropList(items, render, label) {
@@ -744,7 +744,7 @@ function renderJobs() {
   var list = (L.jobs || []).slice().reverse();
   if (!list.length) jobs.appendChild(el('p', {'class': 'empty', text: 'No job sent from the dashboard yet.'}));
   else {
-    var jb = el('tbody'), view = paged('jobs', list, 5, 30, 2, renderJobs);
+    var jb = el('tbody'), view = paged('jobs', list, 5, 30, Infinity, renderJobs);
     view.rows.forEach(function (j) {
       jb.appendChild(el('tr', {}, [el('td', {}, [jobBadge(j.status)]), el('td', {text: ACTION_TEXT[j.action] || j.action}),
         el('td', {'class': 'name'}, [el('div', {'class': 't', title: j.name, text: j.name}),
@@ -1216,12 +1216,19 @@ function awaitCreated(id) {
       if (!j || j.status === 'running' || j.status === 'pending') { setTimeout(poll, 5000); return; }
       delete AWAITING[id]; refreshLive();
       if (j.status === 'done') { downloadCreated(id); setTimeout(function () { downloadCreated(id, 'nfo'); }, 800); toast(j.name + ': .torrent and .nfo ready, upload them to ' + (TNAME[j.target] || j.target) + ', then Seed it from Activity, jobs.'); }
+      else if (j.status === 'cancelled') toast(j.name + ': creation cancelled.');
       else toast('Creation failed: ' + (j.note || 'unknown error'));
     }, function () { setTimeout(poll, 5000); });
   }
   setTimeout(poll, 5000);
 }
 function createdButtons(j) {
+  if (j.action === 'create' && j.status === 'running' && /^queued/.test(j.note || '') && D.actions) {
+    return el('div', {'class': 'chips'}, [el('button', {'class': 'btn sm danger', type: 'button', title: 'Take it out of the queue, before hashing starts', onclick: function (ev) {
+      ev.stopPropagation();
+      api('api/create', {op: 'cancel', job: j.id}).then(function () { toast('Cancelled.'); refreshLive(); }, function (err) { toast('Failed: ' + err.message); });
+    }}, [icon('remove', 'sm'), 'Cancel'])]);
+  }
   if (j.action !== 'create' || j.status !== 'done' || !j.stored || !D.actions) return null;
   return el('div', {'class': 'chips'}, [
     el('button', {'class': 'btn sm', type: 'button', title: 'Download it again', onclick: function (ev) { ev.stopPropagation(); downloadCreated(j.id); }}, [icon('collect', 'sm'), '.torrent']),

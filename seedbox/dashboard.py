@@ -29,7 +29,7 @@ NAV = [
     ("logs-sec", "Logs", "M5 5h14M5 9.5h14M5 14h9M5 18.5h9"),
 ]
 # Auto refresh period, shown on its button (the page script uses the same value).
-AUTO_REFRESH_S = 60
+AUTO_REFRESH_S = 90
 CHECK = '<svg class="icon check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>'
 
 
@@ -224,7 +224,7 @@ def render(snap, history):
         "check": CHECK,
         "logo": _asset("logo.svg").strip(),
         "range": _range_chips(),
-        "auto": f"{AUTO_REFRESH_S // 60} min",
+        "auto": f"{AUTO_REFRESH_S // 60} min" if AUTO_REFRESH_S % 60 == 0 else f"{AUTO_REFRESH_S} s",
         "autos": str(AUTO_REFRESH_S),
         "version": __version__,
         "data": _embed(data),

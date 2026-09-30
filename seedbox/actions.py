@@ -12,7 +12,8 @@ remove a torrent. Requests are validated here, whatever the page sent:
 Each torrent touched gets a job in <output>/jobs.json. Its status is derived
 from qBittorrent's live state when read (a move is done when the save path is
 the target, a removal when the torrent is gone), so the list shows what is
-pending, running, done.
+pending, running, done. The list keeps every open job and the most recent
+finished ones, `KEEP_JOBS` in all (more only while more are open).
 """
 
 import json
@@ -29,6 +30,8 @@ ACTIONS = ("move", "recheck", "start", "skip_extras", "remove", "set_category", 
 HASH = re.compile(r"^[0-9a-f]{40}$|^[0-9a-f]{64}$")
 MAX_HASHES = 500
 KEEP_DONE_S = 7 * 86400
+KEEP_JOBS = 60
+FINISHED = ("done", "failed", "cancelled")
 # Jobs run by a background worker (release matching, torrent creation), which writes their status.
 WORKER_ACTIONS = ("inject", "rename", "create", "seed")
 WORKER_MAX_S = 13 * 3600
@@ -210,18 +213,45 @@ def refresh(cfg, torrents):
     now = time.time()
     with _lock:
         jobs = load_jobs(cfg)
-        kept = []
+        changed = False
         for job in jobs:
-            if job["status"] not in ("done", "failed"):
-                job["status"] = _status(job, live.get(job["hash"]), now)
-                if job["status"] in ("done", "failed"):
-                    job["finished"] = now
-            if job["status"] in ("done", "failed") and now - job.get("finished", job["submitted"]) > KEEP_DONE_S:
-                continue
-            kept.append(job)
-        if kept != jobs:
+            if job["status"] not in FINISHED:
+                status = _status(job, live.get(job["hash"]), now)
+                if status != job["status"]:
+                    job["status"], changed = status, True
+                    if status in FINISHED:
+                        job["finished"] = now
+        kept = _prune(jobs, now)
+        if changed or len(kept) != len(jobs):
             _save_jobs(cfg, kept)
     return kept
+
+
+def _prune(jobs, now):
+    """Open jobs, stored created files (their Seed button), then the newest finished jobs."""
+    room = KEEP_JOBS - sum(1 for j in jobs if j["status"] not in FINISHED or j.get("stored"))
+    keep = set()
+    for i in range(len(jobs) - 1, -1, -1):
+        job = jobs[i]
+        if job["status"] not in FINISHED or job.get("stored"):
+            keep.add(i)
+        elif room > 0 and now - job.get("finished", job["submitted"]) <= KEEP_DONE_S:
+            keep.add(i)
+            room -= 1
+    return [j for i, j in enumerate(jobs) if i in keep]
+
+
+def interrupted(cfg):
+    """At startup: a worker job still open was stopped by the restart."""
+    now = time.time()
+    with _lock:
+        jobs = load_jobs(cfg)
+        stopped = [j for j in jobs if j["action"] in WORKER_ACTIONS and j["status"] not in FINISHED]
+        for job in stopped:
+            job.update(status="failed", note="interrupted by a seedbox restart", finished=now)
+        if stopped:
+            _save_jobs(cfg, jobs)
+    return len(stopped)
 
 
 def _status(job, torrent, now):

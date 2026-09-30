@@ -62,7 +62,7 @@ class FakeQbt:
 def wait(cfg, job_id):
     for _ in range(200):
         job = next(j for j in actions.load_jobs(cfg) if j["id"] == job_id)
-        if job["status"] in ("done", "failed"):
+        if job["status"] in actions.FINISHED:
             return job
         time.sleep(0.02)
     raise AssertionError("job did not finish")
@@ -186,6 +186,32 @@ class Jobs(unittest.TestCase):
                          [f"{done[2]}.nfo", f"{done[2]}.torrent"])  # fmt: skip
         with self.assertRaises(create.CreateError):
             create.delete(self.cfg, done[1])
+
+    def test_cancel_while_queued(self):
+        qbt = FakeQbt()
+        with create._one_at_a_time:  # another hashing holds the queue
+            queued = create.start(self.cfg, qbt, self.snapshot, 0, KEY, FIELDS)
+            self.assertIn("queued", queued["note"])
+            self.assertEqual(create.cancel(self.cfg, queued["id"])["status"], "cancelled")
+            with self.assertRaises(create.CreateError):
+                create.cancel(self.cfg, queued["id"])
+        job = wait(self.cfg, queued["id"])
+        time.sleep(0.1)  # the worker had its turn and left it cancelled
+        job = next(j for j in actions.load_jobs(self.cfg) if j["id"] == queued["id"])
+        self.assertEqual(job["status"], "cancelled")
+        self.assertFalse(os.path.exists(create.path_for(self.cfg, job)))
+        done = wait(self.cfg, create.start(self.cfg, qbt, self.snapshot, 0, KEY, FIELDS)["id"])
+        self.assertEqual(done["status"], "done")
+        with self.assertRaises(create.CreateError):
+            create.cancel(self.cfg, done["id"])
+
+    def test_restart_fails_open_worker_jobs(self):
+        running = actions.add_job(self.cfg, {"action": "create", "hash": "", "name": "x", "status": "running"})
+        actions.add_job(self.cfg, {"action": "move", "hash": "a" * 40, "name": "y"})
+        self.assertEqual(actions.interrupted(self.cfg), 1)
+        by = {j["id"]: j for j in actions.load_jobs(self.cfg)}
+        self.assertEqual(by[running["id"]]["status"], "failed")
+        self.assertIn("restart", by[running["id"]]["note"])
 
     def test_file_changed_before_seeding(self):
         job = wait(self.cfg, create.start(self.cfg, FakeQbt(source=""), self.snapshot, 0, KEY, FIELDS)["id"])
