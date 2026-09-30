@@ -50,6 +50,8 @@ url = "http://prowlarr:9696"
 [output]
 dir = "/data"
 csv_delimiter = ","             # ";" opens straight in Excel with a French locale
+# .torrent files created for upload kept at most: the oldest is replaced.
+# created_max = 10
 
 [service]
 # `seedbox run` collects on schedule; at start only if never done, if the

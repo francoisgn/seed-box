@@ -222,6 +222,7 @@ def gather(client, events=30, cfg=None, errors_kept=30):
         "moves": log_moves(log),
         "removals": log_removals(log),
         "jobs": actions.refresh(cfg, torrents) if cfg else [],
+        "created_max": cfg.created_max if cfg else 0,
     }
 
 

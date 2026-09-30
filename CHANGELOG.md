@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.5.0
+
+- Uploading to a tracker: in an entry's detail, **Create a .torrent for**
+  each declared tracker it is missing on. The `.torrent` is hashed on the
+  server (no network read of the files), private, with the announce URL and
+  the `source` field taken from that tracker's torrents in qBittorrent. The
+  page downloads it as soon as it is ready; once uploaded, **Seed** it from
+  Activity, jobs (added to qBittorrent on the library files, hash check
+  skipped). At most `output.created_max` (10) kept in `<output>/created/`,
+  the oldest replaced, deletable by hand, served only through the API.
+
 ## 1.4.0
 
 - Ratio tiles: one per declared tracker (Prowlarr / cross-seed) plus one for

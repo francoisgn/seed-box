@@ -1,4 +1,4 @@
-"""Read a .torrent file (bencode) and prove a local file is part of it.
+"""Read and write .torrent files (bencode); prove a local file is part of one.
 
 The proof hashes a sample of the torrent's pieces straight from the local file
 (SHA-1, as in the .torrent): same bytes, same release, whatever the file name.
@@ -43,12 +43,30 @@ def _decode(data, i):
     raise TorrentError(f"invalid bencode at byte {i}")
 
 
+def encode(value):
+    """Bencode ints, str/bytes, lists and dicts (keys sorted, as the format requires)."""
+    if isinstance(value, bool):
+        raise TorrentError("bencode has no booleans")
+    if isinstance(value, int):
+        return b"i%de" % value
+    if isinstance(value, str):
+        value = value.encode()
+    if isinstance(value, bytes):
+        return b"%d:%s" % (len(value), value)
+    if isinstance(value, list):
+        return b"l" + b"".join(encode(v) for v in value) + b"e"
+    if isinstance(value, dict):
+        items = sorted((k.encode() if isinstance(k, str) else k, v) for k, v in value.items())
+        return b"d" + b"".join(encode(k) + encode(v) for k, v in items) + b"e"
+    raise TorrentError(f"cannot bencode {type(value).__name__}")
+
+
 def _text(value):
     return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else str(value)
 
 
 def parse(data):
-    """{'infohash', 'name', 'piece_length', 'pieces', 'files': [{'path', 'length', 'offset'}], 'total'}.
+    """{'infohash', 'source', 'name', 'piece_length', 'pieces', 'files': [{'path', 'length', 'offset'}], 'total'}.
 
     files[].path is relative to the torrent root ("Name/file.mkv"); a
     single-file torrent has one file whose path is its name."""
@@ -78,6 +96,7 @@ def parse(data):
         files.append({"path": name, "length": offset, "offset": 0})
     return {
         "infohash": hashlib.sha1(data[start:end]).hexdigest(),
+        "source": _text(info.get(b"source", b"")),
         "name": name,
         "piece_length": piece_length,
         "pieces": [blob[k : k + 20] for k in range(0, len(blob), 20)],

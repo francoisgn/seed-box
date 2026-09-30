@@ -65,6 +65,8 @@ class Config:
 
     output_dir: str = "/data"
     csv_delimiter: str = ","
+    # .torrent files created for upload kept at most (the oldest one is replaced).
+    created_max: int = 10
     # `seedbox run`: fixed schedule ("sun 04:00") or, if empty, a period.
     schedule: str = ""
     interval_hours: float = 24.0
@@ -164,6 +166,7 @@ def load(path=None):
     output = data.get("output", {})
     cfg.output_dir = output.get("dir", cfg.output_dir)
     cfg.csv_delimiter = output.get("csv_delimiter", cfg.csv_delimiter)
+    cfg.created_max = max(int(output.get("created_max", cfg.created_max)), 1)
 
     service = data.get("service", {})
     cfg.schedule = service.get("schedule", cfg.schedule)

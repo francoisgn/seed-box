@@ -59,6 +59,17 @@ class QbtClient:
     def trackers(self, torrent_hash):
         return self.get("/api/v2/torrents/trackers", hash=torrent_hash) or []
 
+    def export(self, torrent_hash):
+        """The .torrent file of a torrent (qBittorrent 4.5+), as bytes."""
+        status, content, _ = request(
+            self.base + "/api/v2/torrents/export?" + urllib.parse.urlencode({"hash": torrent_hash}),
+            headers=self._headers(),
+            raw=True,
+        )
+        if status != 200:
+            raise ApiError(f"qBittorrent: HTTP {status} on /api/v2/torrents/export")
+        return content
+
     def files(self, torrent_hash):
         return self.get("/api/v2/torrents/files", hash=torrent_hash) or []
 
@@ -115,14 +126,16 @@ class QbtClient:
             {"hashes": "|".join(hashes), "enable": "true" if enable else "false"},
         )
 
-    def add_torrent(self, content, save_path, category="", stopped=True):
-        """Add a .torrent: files straight in save_path (no root folder), not started,
-        no automatic management (it would move the files to the category folder)."""
+    def add_torrent(self, content, save_path, category="", stopped=True, layout="NoSubfolder", skip_checking=False):
+        """Add a .torrent: files straight in save_path (no root folder) unless layout
+        says otherwise, no automatic management (it would move the files to the
+        category folder). skip_checking: seed at once, the data is known complete."""
         fields = {
             "savepath": save_path,
             "category": category,
             "autoTMM": "false",
-            "contentLayout": "NoSubfolder",
+            "contentLayout": layout,
+            "skip_checking": "true" if skip_checking else "false",
             # "stopped" since qBittorrent 5.0, "paused" before.
             "stopped": "true" if stopped else "false",
             "paused": "true" if stopped else "false",

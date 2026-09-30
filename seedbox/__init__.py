@@ -1,3 +1,3 @@
 """seedbox: seeding coverage of a media library across qBittorrent and Prowlarr."""
 
-__version__ = "1.4.0"
+__version__ = "1.5.0"

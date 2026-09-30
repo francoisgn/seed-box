@@ -9,9 +9,10 @@ import signal
 import stat
 import sys
 import threading
+import urllib.parse
 from datetime import datetime
 
-from seedbox import __version__, actions, collect, match, metrics, prowlarr, report, status, ui
+from seedbox import __version__, actions, collect, create, match, metrics, prowlarr, report, status, ui
 from seedbox import schedule as sched
 from seedbox.api import ApiError
 from seedbox.config import ConfigError, fingerprint, load
@@ -177,6 +178,8 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
     POST /api/collect  collect now
     POST /api/action   move, recheck, start, skip extras, remove ([service] actions)
     POST /api/match    release matching: search, verify, apply ([service] actions)
+    POST /api/create   create a .torrent for a tracker, then seed it ([service] actions)
+    GET  /api/created  download a created .torrent (?job=id, [service] actions)
     POST /api/errors/clear  hide the qBittorrent warnings and errors logged so far
 
     POSTs need the X-Seedbox header and a JSON body: a page from another site
@@ -222,7 +225,32 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
             )
         if path == "/api/collect":
             return self._send(200, self.service.collect_state())
+        if path == "/api/created":
+            return self._created(params.get("job", ""))
+        created = os.path.realpath(os.path.join(self.cfg.output_dir, "created"))
+        served = os.path.realpath(self.translate_path(self.path))
+        if served == created or served.startswith(created + os.sep):
+            # Created .torrent files hold the passkey: only through /api/created.
+            return self._send(404, {"error": "not found"})
         return super().do_GET()
+
+    def _created(self, job_id):
+        if not self.cfg.actions:
+            return self._send(403, {"error": "actions are disabled ([service] actions = true to enable)"})
+        try:
+            job = create.created_job(self.cfg, job_id)
+            with open(create.path_for(self.cfg, job), "rb") as handle:
+                data = handle.read()
+        except (create.CreateError, OSError) as exc:
+            return self._send(404, {"error": str(exc)})
+        filename = urllib.parse.quote(f"{job['name']}.{job['target']}.torrent")
+        self.send_response(200)
+        self.send_header("Content-Type", "application/x-bittorrent")
+        self.send_header("Content-Disposition", f"attachment; filename*=UTF-8''{filename}")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
 
     def do_POST(self):
         path = self.path.partition("?")[0]
@@ -240,6 +268,9 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
             return self._send(200, {"errors_cleared": status.clear_errors(self.cfg)})
         if path == "/api/match":
             code, result = match.handle(self.cfg, self._client, body)
+            return self._send(code, result)
+        if path == "/api/create":
+            code, result = create.handle(self.cfg, self._client, body)
             return self._send(code, result)
         if path == "/api/collect":
             if not self.cfg.actions:

@@ -29,8 +29,8 @@ ACTIONS = ("move", "recheck", "start", "skip_extras", "remove", "set_category", 
 HASH = re.compile(r"^[0-9a-f]{40}$|^[0-9a-f]{64}$")
 MAX_HASHES = 500
 KEEP_DONE_S = 7 * 86400
-# Jobs run by a background worker (release matching), which writes their status.
-WORKER_ACTIONS = ("inject", "rename")
+# Jobs run by a background worker (release matching, torrent creation), which writes their status.
+WORKER_ACTIONS = ("inject", "rename", "create", "seed")
 WORKER_MAX_S = 13 * 3600
 CHECKING = ("checkingDL", "checkingUP", "checkingResumeData")
 STOPPED = ("stoppedDL", "stoppedUP", "pausedDL", "pausedUP")

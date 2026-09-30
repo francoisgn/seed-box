@@ -107,6 +107,31 @@ actions enabled) searches the other way:
 the command line. A TMDB API key (free) is optional: without it, the title
 parsed from the file name is searched.
 
+### Uploading to a tracker
+
+An entry missing on a declared tracker can be uploaded there: **Create a
+.torrent for** (in its detail, with actions enabled, one button per tracker it
+is missing on) builds the `.torrent` on the server, where the files are. Only
+the `.torrent` goes to the tracker; the data leaves by seeding.
+
+- **Announce URL**: taken from a torrent of that tracker already in qBittorrent
+  (passkey included), nothing to configure. The `source` field is copied from
+  that tracker's `.torrent` files when they have one.
+- **Content**: the film file alone (sidecars stay out), or the whole folder of a
+  season or a film with extras, NAS metadata (`@eaDir`, dot files) left out.
+  Private flag set, piece size from the total size (256 KiB to 16 MiB).
+- **Hashing** reads every byte once, as a background job, one entry at a time.
+- The page **downloads it as soon as it is ready**. Upload it to the tracker by
+  hand, then **Seed** it from Activity, jobs: the torrent is added to
+  qBittorrent on the library files, hash check skipped. If the tracker hands
+  back another `.torrent` (a dupe, a rewritten one), add that one to qBittorrent
+  instead.
+
+A copy stays in `<output>/created/` for the Seed button, owner-only: it holds
+the passkey, so the dashboard serves it only through its API, actions enabled.
+At most `output.created_max` (10) are kept: the next one replaces the oldest, or
+delete them from the jobs list once uploaded.
+
 ### Live panels
 
 Served by `seedbox run`, the dashboard also shows:
@@ -203,6 +228,7 @@ the `_FILE` suffix (Docker secrets), e.g. `SEEDBOX_QBT_PASSWORD_FILE`.
 | | `trackers.aliases` | none |
 | `SEEDBOX_OUTPUT_DIR` | `output.dir` | `/data` |
 | | `output.csv_delimiter` | `,` |
+| | `output.created_max` | `10` |
 | `SEEDBOX_SCHEDULE` | `service.schedule` (`"04:00"`, `"sun 04:00"`, `"mon,thu 03:30"`) | empty |
 | `SEEDBOX_INTERVAL_HOURS` | `service.interval_hours` (used when no schedule) | `24` |
 | `SEEDBOX_PORT` | `service.port` | `8080` |
@@ -223,6 +249,7 @@ the `_FILE` suffix (Docker secrets), e.g. `SEEDBOX_QBT_PASSWORD_FILE`.
 | `history-trackers.csv` | one line per run and tracker |
 | `snapshot.json` | everything above, for other tools |
 | `jobs.json` | actions sent from the dashboard and their status |
+| `created/` | the last `.torrent` files created for upload (passkey inside, not served as files) |
 | `metrics.jsonl` | host and qBittorrent samples |
 
 The coverage curve appears from the second run.

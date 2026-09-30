@@ -401,7 +401,7 @@ function confirmDialog(title, body, okLabel, checkbox, checked) {
   });
 }
 
-var ACTION_TEXT = {inject: 'Inject release', rename: 'Rename file',
+var ACTION_TEXT = {inject: 'Inject release', rename: 'Rename file', create: 'Create .torrent', seed: 'Seed created torrent',
   move: 'Move', recheck: 'Recheck', start: 'Start', skip_extras: 'Skip missing extras', remove: 'Remove',
   set_category: 'Set category', apply_category: 'Apply category folder'
 };
@@ -748,13 +748,16 @@ function renderJobs() {
     view.rows.forEach(function (j) {
       jb.appendChild(el('tr', {}, [el('td', {}, [jobBadge(j.status)]), el('td', {text: ACTION_TEXT[j.action] || j.action}),
         el('td', {'class': 'name'}, [el('div', {'class': 't', title: j.name, text: j.name}),
-          j.note ? el('div', {'class': 'faint small', text: j.note}) : null]),
+          j.note ? el('div', {'class': 'faint small', text: j.note}) : null, createdButtons(j)]),
         el('td', {'class': 'opt path', text: j.target || ''}), el('td', {'class': 'num muted', text: ago(j.submitted * 1000)})]));
     });
     jobs.appendChild(el('div', {'class': 'table-wrap'}, [el('table', {'class': 'dense'}, [el('thead', {}, [el('tr', {}, [
       el('th', {text: 'Status'}), el('th', {text: 'Action'}), el('th', {text: 'Torrent'}), el('th', {'class': 'opt', text: 'Target'}), el('th', {'class': 'num', text: 'Sent'})])]), jb])]));
     jobs.appendChild(view.controls);
   }
+  var stored = storedTorrents().length, max = (L && L.created_max) || 0;
+  if (stored && max) jobs.appendChild(el('p', {'class': 'small', style: stored >= max ? 'color:var(--warn)' : '',
+    text: stored + ' / ' + max + ' created .torrent files stored' + (stored >= max ? ': the next one replaces the oldest, delete the ones already uploaded' : '')}));
 }
 function renderLogs() {
   var box = $('logs'); clear(box);
@@ -1091,6 +1094,7 @@ function entryDetail(e) {
     box.appendChild(el('div', {'class': 'muted small', text: 'Not in cross-seed data folders: never searched.'}));
   }
   if (LIVE && D.actions && S.prowlarr) box.appendChild(matchPanel(e));
+  if (LIVE && D.actions) { var cp = createPanel(e); if (cp) box.appendChild(cp); }
   if (e._main.length) {
     var sel = el('select', {'class': 'select', 'aria-label': 'Destination folder'});
     FOLDERS.forEach(function (f) { if (f.label !== e.folder) sel.appendChild(el('option', {value: f.path, text: f.label})); });
@@ -1104,6 +1108,69 @@ function entryDetail(e) {
   }
   return box;
 }
+// ---------- .torrent creation for the trackers an entry is missing on
+function createPanel(e) {
+  var missingOn = (S.target_trackers || []).filter(function (k) { return e.trackers.indexOf(k) < 0; });
+  if (!missingOn.length) return null;
+  return el('div', {'class': 'cell-flex', style: 'flex-wrap:wrap'}, [el('b', {text: 'Create a .torrent for'}),
+    el('span', {'class': 'muted small', text: 'hashed on the server, private, announce and source taken from that tracker\'s torrents; upload it, then seed it from Activity, jobs'})]
+    .concat(missingOn.map(function (k) {
+      return el('button', {'class': 'btn sm', type: 'button', onclick: function (ev) {
+        ev.stopPropagation();
+        var stored = storedTorrents(), max = (L && L.created_max) || 0;
+        var full = max && stored.length >= max ? ' Limit of ' + max + ' stored .torrent files reached: the oldest (' +
+          stored[0].name + ' for ' + (TNAME[stored[0].target] || stored[0].target) + ') is replaced.' : '';
+        confirmDialog('Create a .torrent for ' + (TNAME[k] || k) + '?', e.name + ': reads its ' + bytes(e.size) +
+          ' (' + e.files + ' file(s)' + (e.kind === 'file' ? ', the film file only' : '') + ') once from disk, in the background, one entry at a time. ' +
+          'Downloaded as soon as it is ready, keep this page open.' + full, 'Create')
+          .then(function () {
+            return api('api/create', {op: 'create', entry: e._i, tracker: k}).then(function (r) {
+              toast('Hashing in the background: the download starts when it is ready.'); refreshLive(); awaitCreated(r.job.id);
+            });
+          }, function () {}).catch(function (err) { toast('Failed: ' + err.message); });
+      }}, [trackerChip(k)]);
+    })));
+}
+// Stored created files, oldest first (the one replaced when the limit is reached).
+function storedTorrents() {
+  return ((L && L.jobs) || []).filter(function (j) { return j.action === 'create' && j.stored; })
+    .sort(function (a, b) { return (a.finished || 0) - (b.finished || 0); });
+}
+function downloadCreated(id) {
+  var a = el('a', {href: 'api/created?job=' + encodeURIComponent(id), download: ''});
+  document.body.appendChild(a); a.click(); a.remove();
+}
+// Polls the job, then downloads the .torrent at once.
+function awaitCreated(id) {
+  var timer = setInterval(function () {
+    api('api/status').then(function (st) {
+      L = st;
+      var j = (st.jobs || []).filter(function (x) { return x.id === id; })[0];
+      if (!j || j.status === 'running' || j.status === 'pending') return;
+      clearInterval(timer); refreshLive();
+      if (j.status === 'done') { downloadCreated(id); toast(j.name + '.torrent ready: upload it to ' + (TNAME[j.target] || j.target) + ', then Seed it from Activity, jobs.'); }
+      else toast('Creation failed: ' + (j.note || 'unknown error'));
+    }).catch(function () {});
+  }, 5000);
+}
+function createdButtons(j) {
+  if (j.action !== 'create' || j.status !== 'done' || !j.stored || !D.actions) return null;
+  return el('div', {'class': 'chips'}, [
+    el('button', {'class': 'btn sm', type: 'button', title: 'Download it again', onclick: function (ev) { ev.stopPropagation(); downloadCreated(j.id); }}, [icon('collect', 'sm'), '.torrent']),
+    el('button', {'class': 'btn sm', type: 'button', title: 'Add it to qBittorrent, hash check skipped', onclick: function (ev) {
+      ev.stopPropagation();
+      confirmDialog('Seed ' + j.name + '?', 'Once uploaded to ' + (TNAME[j.target] || j.target) + ': adds this torrent to qBittorrent on the library files, ' +
+        'hash check skipped. If the tracker gave you another .torrent (dupe, rewritten), add that one instead.', 'Seed')
+        .then(function () {
+          return api('api/create', {op: 'seed', job: j.id}).then(function () { toast('Added to qBittorrent.'); refreshLive(); });
+        }, function () {}).catch(function (err) { toast('Failed: ' + err.message); });
+    }}, [icon('start', 'sm'), 'Seed']),
+    el('button', {'class': 'btn sm danger', type: 'button', title: 'Delete the stored .torrent', 'aria-label': 'Delete the stored .torrent', onclick: function (ev) {
+      ev.stopPropagation();
+      api('api/create', {op: 'delete', job: j.id}).then(function () { toast('Deleted.'); refreshLive(); }, function (err) { toast('Failed: ' + err.message); });
+    }}, [icon('remove', 'sm')])]);
+}
+
 // ---------- release matching: find an entry on the trackers under its release name
 var MATCH = {};  // entry index -> {busy, error, res, verify: {candidate id -> result}, choice}
 var VERDICT = {exact: ['ok', 'exact size'], extras: ['info', 'size + extras'], other: ['', 'other release']};
