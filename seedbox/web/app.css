@@ -189,7 +189,7 @@ tr.detail td { background: var(--s2); padding: 16px 24px 24px; height: auto; }
 .tk { font-size: 12px; line-height: 16px; padding: 2px 8px; border-radius: 12px; border: 1px solid var(--line); color: var(--t2); white-space: nowrap; }
 .tk i { display: inline-block; width: 6px; height: 6px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
 input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--primary); cursor: pointer; }
-.more { display: flex; justify-content: center; align-items: center; gap: 8px; padding: 16px; }
+.more { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 8px; padding: 16px; }
 .match { border-top: 1px solid var(--line); padding-top: 16px; display: flex; flex-direction: column; gap: 8px; }
 .match input[type=radio] { accent-color: var(--primary); }
 .kpi .foot { white-space: pre-line; }

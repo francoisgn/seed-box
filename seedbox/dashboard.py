@@ -143,8 +143,8 @@ PAGE = """<!DOCTYPE html>
     <div class="card kpi c6" id="a-transfer" data-live></div>
     <div class="card c12" data-live><div class="card-head"><h3>Latest qBittorrent errors</h3><span class="sub muted small">warnings and errors from its log, newest first</span>
       <button class="btn sm" id="errors-clear" type="button" title="Hide the warnings and errors logged so far (qBittorrent's log itself is kept)">Clear</button></div><div id="a-errors"></div></div>
-    <div class="card c12" data-live><div class="card-head"><h3>Busy torrents</h3><span class="sub muted small">moving, checking, queued, stopped or in error</span></div><div id="a-busy"></div></div>
     <div class="card c12" data-live><div class="card-head"><h3>Jobs sent from the dashboard</h3><span class="sub muted small">status read back from qBittorrent</span></div><div id="a-jobs"></div></div>
+    <div class="card c12" data-live><div class="card-head"><h3>Busy torrents</h3><span class="sub muted small">moving, checking, queued, stopped or in error</span></div><div id="a-busy"></div></div>
   </div>
 </section>
 
@@ -190,7 +190,7 @@ PAGE = """<!DOCTYPE html>
 <section id="logs-sec">
   <div class="section-head"><h2>Logs</h2><span class="muted">qBittorrent moves, removals and errors</span></div>
   <div class="grid">
-    <div class="card c12" data-live id="logs"></div>
+    <div class="card c12" data-live><div class="card-head"><h3>qBittorrent log</h3><div class="chips" id="log-levels"></div></div><div id="logs"></div></div>
   </div>
   <p class="muted small" style="margin-top:32px">Matched by inode: content hardlinked by cross-seed counts as seeded wherever the
   torrent points. seedbox @version@</p>

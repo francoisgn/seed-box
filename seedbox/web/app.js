@@ -759,12 +759,26 @@ function renderJobs() {
   if (stored && max) jobs.appendChild(el('p', {'class': 'small', style: stored >= max ? 'color:var(--warn)' : '',
     text: stored + ' / ' + max + ' created .torrent files stored' + (stored >= max ? ': the next one replaces the oldest, delete the ones already uploaded' : '')}));
 }
+// Log levels shown: any combination, warnings and errors by default.
+var LOG_LEVELS = {info: false, warn: true, ko: true};
 function renderLogs() {
   var box = $('logs'); clear(box);
+  var bar = clear($('log-levels'));
+  [['info', 'Info'], ['warn', 'Warning'], ['ko', 'Error']].forEach(function (lv) {
+    var n = L ? L.events.filter(function (e) { return e.level === lv[0]; }).length : 0;
+    bar.appendChild(el('button', {'class': 'chip', type: 'button', 'aria-pressed': LOG_LEVELS[lv[0]] ? 'true' : 'false', onclick: function () {
+      LOG_LEVELS[lv[0]] = !LOG_LEVELS[lv[0]]; firstPage('logs'); renderLogs();
+    }}, [icon('check', 'check'), lv[1], el('span', {'class': 'n', text: String(n)})]));
+  });
   if (!L) { box.appendChild(el('p', {'class': 'empty', text: LIVE ? 'Loading…' : 'Live data needs seedbox run.'})); return; }
-  var rows = L.events.slice().reverse();
-  if (!rows.length) { box.appendChild(el('p', {'class': 'empty', text: 'No move, removal or error in the log.'})); return; }
-  box.appendChild(logTable(rows));
+  var rows = L.events.filter(function (e) { return LOG_LEVELS[e.level]; }).reverse();
+  if (!rows.length) {
+    box.appendChild(el('p', {'class': 'empty', text: L.events.length ? 'Nothing at the selected levels.' : 'No move, removal or error in the log.'}));
+    return;
+  }
+  var view = paged('logs', rows, 10, 20, Infinity, renderLogs);
+  box.appendChild(logTable(view.rows));
+  box.appendChild(view.controls);
 }
 function logTable(rows) {
   var tb = el('tbody');
@@ -795,6 +809,7 @@ function renderErrors() {
 // Short list first (few rows), "Show more" opens pages of `step` rows, at most
 // `pages` of them. State survives live refreshes.
 var PAGED = {};
+function firstPage(key) { if (PAGED[key]) PAGED[key].page = 0; }
 function paged(key, rows, first, step, pages, rerender) {
   var st = PAGED[key] || (PAGED[key] = {open: false, page: 0});
   var n = Math.min(pages, Math.ceil(rows.length / step)), bar = el('div', {'class': 'more'});
@@ -802,14 +817,24 @@ function paged(key, rows, first, step, pages, rerender) {
   function go(open, page) { st.open = open; st.page = page; rerender(); }
   if (!st.open) {
     if (rows.length > first) bar.appendChild(el('button', {'class': 'btn sm', type: 'button', onclick: function () { go(true, 0); }},
-      ['Show ' + Math.min(rows.length, step) + ' of ' + Math.min(rows.length, step * pages)]));
+      ['Show ' + Math.min(rows.length, step) + (pages === Infinity ? ' per page, ' + rows.length + ' in all' : ' of ' + Math.min(rows.length, step * pages))]));
     return {rows: rows.slice(0, first), controls: bar};
   }
   bar.appendChild(el('button', {'class': 'btn sm', type: 'button', onclick: function () { go(false, 0); }}, ['Show ' + first]));
-  for (var p = 0; n > 1 && p < n; p++) {
-    bar.appendChild(el('button', {'class': 'chip', type: 'button', 'aria-pressed': p === st.page ? 'true' : 'false',
-      'aria-label': 'Page ' + (p + 1), onclick: go.bind(null, true, p)}, [String(p + 1)]));
+  function pageChip(p, text, label) {
+    bar.appendChild(el('button', {'class': 'chip', type: 'button', 'aria-pressed': text === undefined && p === st.page ? 'true' : 'false',
+      'aria-label': label || 'Page ' + (p + 1), disabled: p < 0 || p >= n ? true : null, onclick: go.bind(null, true, p)}, [text || String(p + 1)]));
   }
+  if (n > 1) {
+    // Many pages: first, last and two around the current one.
+    if (n > 9) pageChip(st.page - 1, '‹', 'Previous page');
+    for (var p = 0, gap = false; p < n; p++) {
+      if (n <= 9 || p === 0 || p === n - 1 || Math.abs(p - st.page) <= 2) { pageChip(p); gap = false; }
+      else if (!gap) { bar.appendChild(el('span', {'class': 'faint', text: '…'})); gap = true; }
+    }
+    if (n > 9) pageChip(st.page + 1, '›', 'Next page');
+  }
+  bar.appendChild(el('span', {'class': 'faint small', text: (st.page * step + 1) + '–' + Math.min((st.page + 1) * step, rows.length) + ' of ' + rows.length}));
   return {rows: rows.slice(st.page * step, (st.page + 1) * step), controls: bar};
 }
 // The server runs another version than this page (upgrade since it was opened): offer a reload.
@@ -923,7 +948,7 @@ function renderDuplicates() {
 }
 
 // ---------- library
-var folder = '', missing = '', query = '', sortKey = 'size', desc = true, shown = 100, openRow = null;
+var folder = '', missing = '', query = '', sortKey = 'size', desc = true, openRow = null, libShown = [];
 var selected = {};
 D.entries.forEach(function (e, i) {
   e._i = i;
@@ -962,12 +987,12 @@ function baseMatch(e) {
 function setFilter(f) {
   active = {seed: {}, state: {}};
   if (CHIPFN[f]) active[CHIPFN[f].group][f] = true;
-  shown = 100; renderLibrary();
+  firstPage('library'); renderLibrary();
 }
 function toggleChip(f) {
   var g = active[CHIPFN[f].group];
   if (g[f]) delete g[f]; else g[f] = true;
-  shown = 100; renderLibrary();
+  firstPage('library'); renderLibrary();
 }
 function updateChips() {
   var none = !Object.keys(active.seed).length && !Object.keys(active.state).length;
@@ -1001,10 +1026,10 @@ function buildLibraryControls() {
   var names = {};
   D.entries.forEach(function (e) { names[e.folder] = (names[e.folder] || 0) + 1; });
   Object.keys(names).sort().forEach(function (f) { fs.appendChild(el('option', {value: f, text: f + ' (' + names[f] + ')'})); });
-  fs.onchange = function () { folder = fs.value; shown = 100; renderLibrary(); };
+  fs.onchange = function () { folder = fs.value; firstPage('library'); renderLibrary(); };
   var ms = $('lib-missing');
   TRACKERS.forEach(function (t) { ms.appendChild(el('option', {value: t.key, text: 'Missing on ' + t.name})); });
-  ms.onchange = function () { missing = ms.value; shown = 100; renderLibrary(); };
+  ms.onchange = function () { missing = ms.value; firstPage('library'); renderLibrary(); };
   document.querySelectorAll('#lib-table th[data-sort]').forEach(function (th) {
     th.onclick = function () { var k = th.dataset.sort; desc = k === sortKey ? !desc : k !== 'name' && k !== 'folder'; sortKey = k; renderLibrary(); };
   });
@@ -1024,7 +1049,7 @@ function buildLibraryControls() {
   $('batch-start').onclick = function () { batchAct('start'); };
   $('batch-clear').onclick = function () { selected = {}; renderLibrary(); };
   $('lib-all').onchange = function () {
-    var rows = visibleEntries().slice(0, shown);
+    var rows = libShown;
     if ($('lib-all').checked) rows.forEach(function (e) { selected[e._i] = true; }); else selected = {};
     renderLibrary();
   };
@@ -1322,8 +1347,9 @@ function renderLibrary() {
   $('lib-count').textContent = rows.length + ' of ' + D.entries.length;
   updateChips();
   document.querySelectorAll('#lib-table th[data-sort]').forEach(function (th) { th.classList.toggle('sorted', th.dataset.sort === sortKey); });
-  var frag = document.createDocumentFragment();
-  rows.slice(0, shown).forEach(function (e) {
+  var frag = document.createDocumentFragment(), view = paged('library', rows, 10, 20, Infinity, renderLibrary);
+  libShown = view.rows;
+  view.rows.forEach(function (e) {
     var cb = el('input', {type: 'checkbox', 'aria-label': 'Select', onclick: function (ev) { ev.stopPropagation(); }});
     cb.checked = !!selected[e._i];
     cb.onchange = function () { if (cb.checked) selected[e._i] = true; else delete selected[e._i]; updateBatch(); };
@@ -1341,7 +1367,7 @@ function renderLibrary() {
   body.appendChild(frag);
   $('lib-empty').hidden = rows.length > 0;
   var more = $('lib-more'); clear(more);
-  if (rows.length > shown) more.appendChild(el('button', {'class': 'btn', type: 'button', onclick: function () { shown += 200; renderLibrary(); }, text: 'Show ' + Math.min(200, rows.length - shown) + ' more'}));
+  more.appendChild(view.controls);
   updateBatch();
 }
 function updateBatch() {
@@ -1444,7 +1470,7 @@ function init() {
   renderQueueTiles(); renderActivity(); renderLogs();
   wireNav();
   $('search').addEventListener('input', function (e) {
-    query = e.target.value.toLowerCase(); shown = 100; renderLibrary();
+    query = e.target.value.toLowerCase(); firstPage('library'); renderLibrary();
   });
   $('live-refresh').onclick = function () { refreshLive(); refreshMetrics(); };
   $('errors-clear').onclick = function () {

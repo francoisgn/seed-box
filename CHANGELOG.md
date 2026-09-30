@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.7.0
+
+- Library: 10 entries at first, then pages of 20 (first, last and nearby
+  pages, previous / next), instead of 100 then "show 200 more".
+- Logs: 10 lines at first, then pages of 20, with a level filter (info,
+  warning, error, any combination; warnings and errors by default).
+- Activity: the dashboard jobs come before the busy torrents.
+
 ## 1.6.1
 
 - Same content as 1.6.0 below: the `v1.6.0` tag (and its image) was set on
