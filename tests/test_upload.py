@@ -74,6 +74,8 @@ class FakeApi(http.server.BaseHTTPRequestHandler):
 
 FakeApi.approved = True
 
+# A result about another film: the tracker answers, nothing of this one there.
+OTHER_FILM = {"title": "Another.Film.2011.1080p.x264-XYZ", "size": 1}
 IDENT = {"id": 5, "titles": ["Some Film"], "year": "2019", "imdb": ""}
 
 # The documented contract, written as a user would in [upload.api].
@@ -115,7 +117,7 @@ class Base(unittest.TestCase):
         FakeApi.answer, FakeApi.seen, FakeApi.approved = None, [], True
         upload._probe.update(at=0, value=None)
         upload._passkeys.clear()
-        upload._checks.clear()
+        upload._checks.update(mtime=None, data={})
 
     def tearDown(self):
         self.server.shutdown()
@@ -228,9 +230,6 @@ class Api(Base):
 
 @mock.patch.object(nfo, "describe", lambda *a: DESCRIBED)
 class Flow(Base):
-    def candidates(self):
-        return {f["index"]: f for f in upload.candidates(self.cfg, self.snapshot)}
-
     def fake_check(self, results, tmdb_found=({"id": 5, "title": "Some Film", "year": "2019"},)):
         client = mock.Mock()
         client.search.side_effect = lambda q, i: results
@@ -244,10 +243,24 @@ class Flow(Base):
         ):  # fmt: skip
             return upload.check(self.cfg, self.snapshot, 0), client
 
-    def test_candidates_are_films_missing_there(self):
-        found = self.candidates()
-        self.assertEqual(list(found), [0])  # not the episode, not the one already there
-        self.assertEqual((found[0]["language"], found[0]["group"], found[0]["seeds"]), ("MULTI", "GRP", 12))
+    def test_checks_kept_by_path_and_tracker(self):
+        for n, e in enumerate(self.snapshot["entries"][1:], 1):
+            e["path"] = os.path.join(self.root, f"other-{n}.mkv")
+        self.fake_check([OTHER_FILM])
+        upload._checks.update(mtime=None, data={})  # as after a restart: read back from checks.json
+        view = upload.checks_view(self.cfg, self.snapshot)
+        self.assertEqual([(c["index"], c["tracker"], c["verdict"]) for c in view], [(0, KEY, "clear")])
+        # A new collection moves the entry: its result follows the path.
+        moved = dict(self.snapshot, entries=[self.snapshot["entries"][2], self.snapshot["entries"][0]])
+        self.assertEqual([c["index"] for c in upload.checks_view(self.cfg, moved)], [1])
+        with self.assertRaisesRegex(upload.UploadError, "unknown tracker"):
+            upload.check(self.cfg, self.snapshot, 0, "nowhere.example")
+
+    def test_empty_answer_is_not_clear(self):
+        # The indexer answered nothing at all (down, rate limited): no proof the film is absent.
+        result, _ = self.fake_check([])
+        self.assertEqual(result["verdict"], "incomplete")
+        self.assertIn("no result at all", result["reasons"][0])
 
     def test_check_blocks_a_release_already_there(self):
         result, client = self.fake_check([{"title": "Some.Film.2019.MULTi.1080p.BluRay.x264-GRP.FRENCH", "size": SIZE}])
@@ -255,7 +268,7 @@ class Flow(Base):
         self.assertEqual(client.search.call_args_list[0].args[0], "Some Film 2019 GRP")
         self.assertEqual(result["languages"]["group"], "MULTI")
         self.assertEqual(result["tmdb"][0]["url"], "https://www.themoviedb.org/movie/5")
-        self.assertEqual(self.candidates()[0]["check"]["verdict"], "blocked")
+        self.assertEqual(upload.checks_view(self.cfg, self.snapshot)[0]["verdict"], "blocked")
 
     def test_check_warns_and_clears(self):
         other = {"title": "Some.Film.2019.1080p.WEB.H264-ABC", "size": SIZE * 3}
@@ -263,7 +276,7 @@ class Flow(Base):
         self.assertEqual(
             self.fake_check([{"title": "Some.Film.2019.2160p.x265-ABC", "size": SIZE * 9}])[0]["verdict"], "clear"
         )
-        self.assertEqual(self.fake_check([], tmdb_found=())[0]["verdict"], "warn")  # TMDB knows no such film
+        self.assertEqual(self.fake_check([OTHER_FILM], tmdb_found=())[0]["verdict"], "warn")  # TMDB knows no such film
 
     def test_keep_the_trackers_torrent_for_review(self):
         same = {
@@ -310,7 +323,7 @@ class Flow(Base):
 
     def test_upload_then_seed(self):
         self.cfg.upload_send = True
-        self.fake_check([])
+        self.fake_check([OTHER_FILM])
         qbt = FakeQbt()
         with mock.patch.object(upload, "WAIT_POLL_S", 0.02):
             job = self.wait(upload.start(self.cfg, lambda: qbt, self.snapshot, [0])[0]["id"])
@@ -332,7 +345,7 @@ class Flow(Base):
 
     def test_duplicate_goes_to_review(self):
         self.cfg.upload_send = True
-        self.fake_check([])
+        self.fake_check([OTHER_FILM])
         FakeApi.answer = (
             409,
             {"ok": False, "code": "DUPLICATE", "message": "Doublon", "candidates": [{"name": "Some.Film.X"}]},

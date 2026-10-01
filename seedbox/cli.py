@@ -192,8 +192,10 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
     POST /api/match    release matching: search, verify, apply ([service] actions)
     POST /api/create   create a .torrent for a tracker, then seed it ([service] actions)
     GET  /upload       moved: the Upload section of library.html
-    GET  /api/upload   upload API access, settings and the films missing on that tracker
-    POST /api/upload   check a film against the tracker, send checked films ([service] actions)
+    GET  /api/upload   upload API access and settings, torrents kept for review
+    POST /api/upload   send checked films through the upload API ([service] actions)
+    GET  /api/checks   trackers a check can search, stored check results
+    POST /api/check    check a film against a tracker, keep a tracker's torrent for review ([service] actions)
     GET  /api/created  download a created .torrent or its .nfo (?job=id&file=nfo, [service] actions)
     POST /api/errors/clear  hide the qBittorrent warnings and errors logged so far
 
@@ -244,6 +246,9 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
             return self._created(params.get("job", ""), params.get("file", "torrent"))
         if path == "/api/upload":
             code, result = upload.overview(self.cfg, self._client)
+            return self._send(code, result)
+        if path == "/api/checks":
+            code, result = upload.checks_overview(self.cfg)
             return self._send(code, result)
         if path in ("/upload", "/upload.html"):
             return self._moved()
@@ -321,6 +326,9 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
             return self._send(code, result)
         if path == "/api/upload":
             code, result = upload.handle(self.cfg, self._client, body)
+            return self._send(code, result)
+        if path == "/api/check":
+            code, result = upload.handle_check(self.cfg, body)
             return self._send(code, result)
         if path == "/api/collect":
             if not self.cfg.actions:

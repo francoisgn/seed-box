@@ -988,8 +988,20 @@ D.entries.forEach(function (e, i) {
   e._dup = e.issues.some(isDup);
   e._k = (e.name + ' ' + e.folder + ' ' + e.trackers.map(function (k) { return TNAME[k] || k; }).join(' ')).toLowerCase();
   e._main = e.torrents.filter(function (h) { return BYHASH[h] && !BYHASH[h].link; });
+  e._lang = langGroup(e.name);
 });
-// Two groups of filter chips: OR inside a group, AND between groups.
+// Language from the release name (MediaInfo tells more at check time).
+function langGroup(name) {
+  if (/(^|[^a-z0-9])(multi|vf2)([^a-z0-9]|$)/i.test(name)) return 'MULTI';
+  if (/(^|[^a-z0-9])(vostfr|subfrench)([^a-z0-9]|$)/i.test(name)) return 'VOSTFR';
+  if (/(^|[^a-z0-9])(truefrench|french|vff|vfq|vfi|vf)([^a-z0-9]|$)/i.test(name)) return 'FRENCH';
+  return 'VO';
+}
+var MAIN_RES = ['2160p', '1080p', '720p'];
+// Check results by entry and tracker (from /api/checks), and the trackers a check can search.
+var CHK = {}, CHECKABLE = [];
+function verdicts(e) { var c = CHK[e._i] || {}; return Object.keys(c).map(function (k) { return c[k].verdict; }); }
+// Groups of filter chips: OR inside a group, AND between groups.
 var GROUPS = [
   {id: 'seed', label: 'Seeding', chips: [
     ['everywhere', 'Seeded everywhere', function (e) { return e.coverage === 'everywhere' && e.status === 'seeded'; }],
@@ -1003,11 +1015,24 @@ var GROUPS = [
     ['opportunity', 'Absent: upload it', function (e) { return e.search_state === 'opportunity'; }],
     ['other_release', 'Other release present', function (e) { return e.search_state === 'other_release'; }],
     ['unsearched', 'Not searched yet', function (e) { return e.search_state === 'unsearched' || e.search_state === 'not_indexed'; }]
+  ]},
+  {id: 'res', label: 'Resolution', chips: MAIN_RES.map(function (r) { return [r, r, function (e) { return e.resolution === r; }]; })
+    .concat([['res_other', 'Other', function (e) { return MAIN_RES.indexOf(e.resolution) < 0; }]])},
+  {id: 'lang', label: 'Language', chips: [['MULTI', 'MULTI'], ['FRENCH', 'FRENCH'], ['VOSTFR', 'VOSTFR'], ['VO', 'No French marker']]
+    .map(function (l) { return [l[0], l[1], function (e) { return e._lang === l[0]; }]; })},
+  {id: 'check', label: 'Check', chips: [
+    ['unchecked', 'Not checked', function (e) { return !verdicts(e).length; }],
+    ['v_clear', 'Clear', function (e) { return verdicts(e).indexOf('clear') >= 0; }],
+    ['v_warn', 'Check it', function (e) { return verdicts(e).indexOf('warn') >= 0; }],
+    ['v_blocked', 'Already there', function (e) { return verdicts(e).indexOf('blocked') >= 0; }],
+    ['v_incomplete', 'Search failed', function (e) { return verdicts(e).indexOf('incomplete') >= 0; }]
   ]}
 ];
-var active = {seed: {}, state: {}};
+function noFilter() { var a = {}; GROUPS.forEach(function (g) { a[g.id] = {}; }); return a; }
+var active = noFilter();
 var CHIPFN = {};
 GROUPS.forEach(function (g) { g.chips.forEach(function (c) { CHIPFN[c[0]] = {group: g.id, fn: c[2]}; }); });
+function inGroups(e, skip) { return GROUPS.every(function (g) { return g.id === skip || inGroup(e, g.id); }); }
 function inGroup(e, gid) {
   var keys = Object.keys(active[gid]);
   return !keys.length || keys.some(function (k) { return CHIPFN[k].fn(e); });
@@ -1022,7 +1047,7 @@ function goLibrary(f) {
 }
 // From a tile: show only this chip.
 function setFilter(f) {
-  active = {seed: {}, state: {}};
+  active = noFilter();
   if (CHIPFN[f]) active[CHIPFN[f].group][f] = true;
   firstPage('library'); renderLibrary();
 }
@@ -1032,7 +1057,7 @@ function toggleChip(f) {
   firstPage('library'); renderLibrary();
 }
 function updateChips() {
-  var none = !Object.keys(active.seed).length && !Object.keys(active.state).length;
+  var none = GROUPS.every(function (g) { return !Object.keys(active[g.id]).length; });
   document.querySelectorAll('#lib-chips .chip').forEach(function (c) {
     var f = c.dataset.f;
     if (f === 'all') {
@@ -1040,11 +1065,11 @@ function updateChips() {
       c.querySelector('.n').textContent = String(D.entries.filter(baseMatch).length);
       return;
     }
-    var gid = CHIPFN[f].group, other = gid === 'seed' ? 'state' : 'seed';
+    var gid = CHIPFN[f].group;
     c.setAttribute('aria-pressed', active[gid][f] ? 'true' : 'false');
-    // Count under the other group's selection, so combinations read directly.
+    // Count under the other groups' selection, so combinations read directly.
     c.querySelector('.n').textContent = String(D.entries.filter(function (e) {
-      return baseMatch(e) && inGroup(e, other) && CHIPFN[f].fn(e);
+      return baseMatch(e) && inGroups(e, gid) && CHIPFN[f].fn(e);
     }).length);
   });
 }
@@ -1085,6 +1110,7 @@ function buildLibraryControls() {
   $('batch-recheck').onclick = function () { batchAct('recheck'); };
   $('batch-start').onclick = function () { batchAct('start'); };
   $('batch-clear').onclick = function () { selected = {}; renderLibrary(); };
+  loadChecks();
   $('lib-all').onchange = function () {
     var rows = libShown;
     if ($('lib-all').checked) rows.forEach(function (e) { selected[e._i] = true; }); else selected = {};
@@ -1098,7 +1124,7 @@ function batchAct(action) {
   act(action, hashes);
 }
 function visibleEntries() {
-  var rows = D.entries.filter(function (e) { return baseMatch(e) && inGroup(e, 'seed') && inGroup(e, 'state'); });
+  var rows = D.entries.filter(function (e) { return baseMatch(e) && inGroups(e); });
   rows.sort(function (a, b) {
     var x, y;
     if (sortKey === 'trackers') { x = a.trackers.length; y = b.trackers.length; }
@@ -1156,6 +1182,7 @@ function entryDetail(e) {
     box.appendChild(el('div', {'class': 'muted small', text: 'Not in cross-seed data folders: never searched.'}));
   }
   if (LIVE && D.actions && S.prowlarr) box.appendChild(matchPanel(e));
+  if (LIVE && D.actions) { var ck = checkPanel(e); if (ck) box.appendChild(ck); }
   if (LIVE && D.actions) { var cp = createPanel(e); if (cp) box.appendChild(cp); }
   if (e._main.length) {
     var sel = el('select', {'class': 'select', 'aria-label': 'Destination folder'});
@@ -1170,6 +1197,124 @@ function entryDetail(e) {
   }
   return box;
 }
+// ---------- checks against the trackers: is the film already there, does its name say what it holds
+var CVERDICT = {clear: ['ok', 'clear'], warn: ['warn', 'check it'], blocked: ['ko', 'already there'], incomplete: ['warn', 'search failed']};
+var CKIND = {same_size: ['ko', 'same size'], same_release: ['ko', 'same group + res.'], same_resolution: ['warn', 'same resolution'], other: ['', 'other release']};
+var PROOF = {};
+function loadChecks() {
+  if (!LIVE) return;
+  api('api/checks').then(function (r) {
+    CHECKABLE = r.trackers || []; CHK = {};
+    (r.checks || []).forEach(function (c) { (CHK[c.index] = CHK[c.index] || {})[c.tracker] = c; });
+    renderCheckBatch(); renderLibrary();
+  }, function () {});
+}
+function checkCell(e) {
+  var c = CHK[e._i] || {};
+  return el('td', {'class': 'opt'}, [el('div', {'class': 'chips'}, Object.keys(c).map(function (k) {
+    var v = CVERDICT[c[k].verdict] || ['', c[k].verdict];
+    return el('span', {'class': 'badge ' + v[0], title: (TNAME[k] || k) + ': ' + v[1] + ', ' + ago(c[k].at * 1000)}, [(TNAME[k] || k).split('.')[0] + ' · ' + v[1]]);
+  }))]);
+}
+// Trackers this entry can be checked on: missing there, with a Prowlarr indexer.
+function checkTargets(e) { return CHECKABLE.filter(function (k) { return e.trackers.indexOf(k) < 0; }); }
+function runCheck(e, k) {
+  return api('api/check', {op: 'check', entry: e._i, tracker: k}).then(function (r) {
+    (CHK[e._i] = CHK[e._i] || {})[k] = r;
+  }, function (err) {
+    (CHK[e._i] = CHK[e._i] || {})[k] = {verdict: 'incomplete', reasons: [err.message], matches: [], searched: [], at: Date.now() / 1000, tracker: k};
+  });
+}
+function renderCheckBatch() {
+  var box = $('batch-check'); clear(box);
+  if (!D.actions) return;
+  CHECKABLE.forEach(function (k) {
+    box.appendChild(el('button', {'class': 'btn sm', type: 'button', title: 'Search ' + (TNAME[k] || k) + ' for each selected film (one at a time)', onclick: function () {
+      var todo = Object.keys(selected).map(function (i) { return D.entries[i]; }).filter(function (e) { return e.trackers.indexOf(k) < 0; });
+      if (!todo.length) { toast('The selected entries are all seeded on ' + (TNAME[k] || k) + '.'); return; }
+      var n = 0, total = todo.length;
+      (function next() {
+        if (!todo.length) { toast('Checked ' + total + ' entr' + (total > 1 ? 'ies' : 'y') + ' on ' + (TNAME[k] || k) + '.'); renderLibrary(); return; }
+        var e = todo.shift();
+        toast('Checking ' + (++n) + ' / ' + total + ' on ' + (TNAME[k] || k) + '…');
+        runCheck(e, k).then(function () { renderLibrary(); next(); });
+      })();
+    }}, ['Check on ', trackerChip(k)]));
+  });
+}
+function proofButtons(m) {
+  var p = PROOF[m.candidate], box = el('div', {'class': 'chips', onclick: function (ev) { ev.stopPropagation(); }});
+  if (p === 'busy') return el('span', {'class': 'faint small', text: 'working…'});
+  if (!p) {
+    box.appendChild(el('button', {'class': 'btn sm', type: 'button', title: 'Fetch its .torrent and hash pieces of the local file against it', onclick: function () {
+      PROOF[m.candidate] = 'busy'; renderLibrary();
+      api('api/match', {op: 'verify', candidate: m.candidate}).then(function (r) { PROOF[m.candidate] = r; },
+        function (err) { PROOF[m.candidate] = {verified: false, reason: err.message}; }).then(renderLibrary);
+    }}, ['Verify']));
+  } else if (p.kept) {
+    box.appendChild(el('span', {'class': 'badge', text: 'kept for review'}));
+  } else if (p.verified) {
+    box.appendChild(el('span', {'class': 'badge ok', text: 'same bytes'}));
+    if (p.in_qbt) box.appendChild(el('span', {'class': 'badge', text: 'already in qBittorrent'}));
+    else box.appendChild(el('button', {'class': 'btn sm filled', type: 'button', title: 'Add it to qBittorrent on the library file, started once the recheck says 100 %', onclick: function () {
+      api('api/match', {op: 'apply', infohash: p.infohash, mode: 'inject'}).then(function () {
+        p.in_qbt = true; toast('Inject started: follow it in Activity, jobs.'); refreshLive(); renderLibrary();
+      }, function (err) { toast('Failed: ' + err.message); });
+    }}, ['Inject']));
+  } else {
+    box.appendChild(el('span', {'class': 'badge warn', text: p.reason || 'not the same bytes'}));
+  }
+  if (!(p && (p.verified || p.kept))) {
+    box.appendChild(el('button', {'class': 'btn sm', type: 'button', title: 'Save the tracker\'s .torrent and what is known of the local file, to be matched by hand', onclick: function () {
+      api('api/check', {op: 'review', candidate: m.candidate, reason: p && p.reason ? 'verify: ' + p.reason : 'not verified'}).then(function () {
+        PROOF[m.candidate] = {kept: true}; toast('Kept in review/: ask for it to be matched.'); renderLibrary();
+      }, function (err) { toast('Failed: ' + err.message); });
+    }}, ['Keep for review']));
+  }
+  return box;
+}
+function checkResult(e, k, c) {
+  var v = CVERDICT[c.verdict] || ['', c.verdict];
+  var box = el('div', {'class': 'small', style: 'display:flex;flex-direction:column;gap:8px'});
+  box.appendChild(el('div', {'class': 'cell-flex', style: 'flex-wrap:wrap'}, [el('span', {'class': 'badge ' + v[0], text: v[1]}),
+    el('span', {'class': 'faint', text: 'checked ' + ago(c.at * 1000)}),
+    el('button', {'class': 'btn sm', type: 'button', onclick: function (ev) { ev.stopPropagation(); runCheck(e, k).then(renderLibrary); }}, ['Check again'])]));
+  (c.reasons || []).forEach(function (r) { box.appendChild(el('div', {text: '• ' + r})); });
+  if (c.languages && c.languages.audio) box.appendChild(el('div', {text: 'MediaInfo: ' + c.languages.group + ' · audio ' + (c.languages.audio.join(', ') || '?') +
+    ' · subtitles ' + ((c.languages.subtitles || []).join(', ') || 'none')}));
+  if ((c.tmdb || []).length) box.appendChild(el('div', {}, ['TMDB: '].concat(c.tmdb.map(function (t, i) {
+    return el('span', {}, [i ? ' · ' : '', el('a', {href: t.url, target: '_blank', rel: 'noopener', text: t.title + ' (' + (t.year || '?') + ')'})]);
+  }))));
+  if ((c.errors || []).length) box.appendChild(el('div', {style: 'color:var(--warn)', text: 'Failed: ' + c.errors.join(' | ')}));
+  if ((c.matches || []).length) {
+    var tb = el('tbody');
+    c.matches.forEach(function (m) {
+      var kd = CKIND[m.kind] || ['', m.kind];
+      tb.appendChild(el('tr', {}, [el('td', {}, [el('span', {'class': 'badge ' + kd[0], text: kd[1]})]),
+        el('td', {}, [m.info_url ? el('a', {href: m.info_url, target: '_blank', rel: 'noopener', text: m.title}) : m.title]),
+        el('td', {'class': 'num', text: bytes(m.size)}), el('td', {'class': 'num', text: String(m.seeders)}),
+        el('td', {}, [m.candidate ? proofButtons(m) : (m.kind === 'same_size' || m.kind === 'same_release' ? el('span', {'class': 'faint small', text: 'check again to verify'}) : null)])]));
+    });
+    box.appendChild(el('table', {'class': 'dense subtable'}, [tb]));
+  } else if (c.verdict !== 'incomplete') box.appendChild(el('div', {text: 'Nothing of this film found there.'}));
+  return box;
+}
+function checkPanel(e) {
+  var targets = checkTargets(e);
+  if (!targets.length) return null;
+  var box = el('div', {style: 'display:flex;flex-direction:column;gap:16px'});
+  targets.forEach(function (k) {
+    var c = (CHK[e._i] || {})[k];
+    box.appendChild(el('div', {'class': 'cell-flex', style: 'flex-wrap:wrap'}, [el('b', {text: 'Check on'}), trackerChip(k),
+      c ? null : el('button', {'class': 'btn sm', type: 'button', title: 'Search the tracker (targeted), TMDB, and the name against MediaInfo', onclick: function (ev) {
+        ev.stopPropagation(); toast('Checking on ' + (TNAME[k] || k) + '…'); runCheck(e, k).then(renderLibrary);
+      }}, ['Check']),
+      c ? null : el('span', {'class': 'muted small', text: 'Is it already there, does its name say what the file holds'})]));
+    if (c) box.appendChild(checkResult(e, k, c));
+  });
+  return box;
+}
+
 // ---------- .torrent creation for the trackers an entry is missing on
 function createPanel(e) {
   var missingOn = (S.target_trackers || []).filter(function (k) { return e.trackers.indexOf(k) < 0; });
@@ -1177,7 +1322,9 @@ function createPanel(e) {
   return el('div', {'class': 'cell-flex', style: 'flex-wrap:wrap'}, [el('b', {text: 'Create a .torrent for'}),
     el('span', {'class': 'muted small', text: 'with its .nfo (name + MediaInfo, checked before), hashed on the server, private, announce and source from that tracker\'s torrents; upload both, then Seed from Activity, jobs'})]
     .concat(missingOn.map(function (k) {
-      return el('button', {'class': 'btn sm', type: 'button', onclick: function (ev) {
+      var blocked = ((CHK[e._i] || {})[k] || {}).verdict === 'blocked';
+      return el('button', {'class': 'btn sm', type: 'button', disabled: blocked ? true : null,
+        title: blocked ? 'The check found this release already there: seed that one instead (Verify, Inject)' : null, onclick: function (ev) {
         ev.stopPropagation();
         toast('Reading the file with MediaInfo…');
         api('api/create', {op: 'describe', entry: e._i}).then(function (desc) { releaseForm(e, k, desc); },
@@ -1409,10 +1556,10 @@ function renderLibrary() {
     var tr = el('tr', {'class': 'row' + (openRow === e._i ? ' open' : '')}, [el('td', {}, [cb]), el('td', {}, [statusBadge(e)]),
       el('td', {'class': 'name'}, [el('div', {'class': 't', title: e.name, text: label(e.name)}), el('div', {'class': 'faint small', text: e.folder})]),
       el('td', {'class': 'opt'}, [el('div', {'class': 'tracks'}, e.trackers.map(trackerChip))]),
-      el('td', {'class': 'num', text: bytes(e.size)}), el('td', {'class': 'num opt', text: bytes(e.uploaded)}), issues]);
+      el('td', {'class': 'num', text: bytes(e.size)}), el('td', {'class': 'num opt', text: bytes(e.uploaded)}), issues, checkCell(e)]);
     tr.onclick = function () { openRow = openRow === e._i ? null : e._i; renderLibrary(); };
     frag.appendChild(tr);
-    if (openRow === e._i) frag.appendChild(el('tr', {'class': 'detail'}, [el('td', {colspan: 7}, [entryDetail(e)])]));
+    if (openRow === e._i) frag.appendChild(el('tr', {'class': 'detail'}, [el('td', {colspan: 8}, [entryDetail(e)])]));
   });
   body.appendChild(frag);
   $('lib-empty').hidden = rows.length > 0;

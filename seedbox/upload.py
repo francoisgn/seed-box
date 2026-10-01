@@ -61,7 +61,7 @@ TMDB_LINK = "https://www.themoviedb.org/movie/{}"
 
 _probe = {"at": 0, "value": None}
 _passkeys = {}  # tracker -> passkey read from qBittorrent
-_checks = {}  # entry index -> check result
+_checks = {"mtime": None, "data": {}}  # "<path>\t<tracker>" -> check result, mirror of checks.json
 _lock = threading.Lock()
 _one_upload = threading.Lock()
 
@@ -266,45 +266,90 @@ def language_group(name):
     return "FRENCH" if lang else "VO"
 
 
-def candidates(cfg, snapshot):
-    key = cfg.upload_tracker
-    seeds = {t["hash"]: t.get("seeds") or 0 for t in snapshot.get("torrents", [])}
+# ---------- check results, kept in <output>/checks.json: by library path and tracker, so they
+# survive restarts and new collections (an entry's index changes, its path does not).
+def _checks_path(cfg):
+    return os.path.join(cfg.output_dir, "checks.json")
+
+
+def _key(path, tracker):
+    return f"{path}\t{tracker}"
+
+
+def _all_checks(cfg):
+    """The stored results (caller holds _lock)."""
+    try:
+        mtime = os.path.getmtime(_checks_path(cfg))
+    except OSError:
+        return {}
+    if _checks["mtime"] != mtime:
+        try:
+            with open(_checks_path(cfg), encoding="utf-8") as handle:
+                _checks.update(mtime=mtime, data=json.load(handle))
+        except (OSError, ValueError):
+            return _checks["data"]
+    return _checks["data"]
+
+
+def stored_check(cfg, path, tracker):
+    with _lock:
+        return _all_checks(cfg).get(_key(path, tracker))
+
+
+def _store_check(cfg, result):
+    with _lock:
+        data = dict(_all_checks(cfg))
+        data[_key(result["path"], result["tracker"])] = result
+        os.makedirs(cfg.output_dir, exist_ok=True)
+        create._write(_checks_path(cfg), json.dumps(data, ensure_ascii=False).encode())
+        _checks.update(mtime=os.path.getmtime(_checks_path(cfg)), data=data)
+
+
+def checks_view(cfg, snapshot):
+    """Stored results of the entries of the current collection: [{index, tracker, ...}]."""
+    index = {e["path"]: i for i, e in enumerate(snapshot.get("entries", []))}
+    with _lock:
+        data = dict(_all_checks(cfg))
+        live = set(match._candidates)
     out = []
-    for i, e in enumerate(snapshot.get("entries", [])):
-        if key in (e.get("trackers") or []) or not is_film(cfg, e):
+    for result in data.values():
+        i = index.get(result.get("path"))
+        if i is None:
             continue
-        name = os.path.basename(e["name"])
-        release = nfo.from_name(name)
-        with _lock:
-            done = _checks.get(i)
-        out.append(
-            {
-                "index": i,
-                "name": e["name"],
-                "folder": e.get("folder", ""),
-                "size": e.get("size", 0),
-                "resolution": e.get("resolution") or release["resolution"],
-                "language": language_group(name),
-                "group": release["group"],
-                "year": release["year"],
-                "trackers": e.get("trackers") or [],
-                "uploaded": e.get("uploaded", 0),
-                "seeds": max((seeds.get(h, 0) for h in e.get("torrents") or []), default=0),
-                "search": ((e.get("search") or {}).get(key) or {}).get("verdict", ""),
-                "check": {k: done[k] for k in ("verdict", "reasons", "at")} if done else None,
-            }
-        )
+        # Candidate ids live in memory: after a restart, Verify needs a new check.
+        matches = [
+            {**m, "candidate": m.get("candidate") if m.get("candidate") in live else ""}
+            for m in result.get("matches", [])
+        ]
+        out.append({**result, "index": i, "matches": matches})
     return out
 
 
+_checkable = {"at": 0, "value": None}
+
+
+def checkable(cfg):
+    """Trackers a check can search: those with an enabled Prowlarr indexer (cached a few minutes)."""
+    if not cfg.prowlarr_enabled:
+        return []
+    with _lock:
+        if _checkable["value"] is not None and time.time() - _checkable["at"] < PROBE_TTL_S:
+            return _checkable["value"]
+    client = ProwlarrClient(cfg.prowlarr_url, cfg.prowlarr_api_key)
+    keys = sorted({ix["key"] for ix in search_indexers(client, cfg.tracker_aliases)})
+    with _lock:
+        _checkable.update(at=time.time(), value=keys)
+    return keys
+
+
 # ---------- check: is the film already there, does its name say what it holds
-def _indexer(cfg):
+def _indexer(cfg, tracker):
     if not cfg.prowlarr_enabled:
         raise UploadError("the duplicate check searches the tracker through Prowlarr: set [prowlarr]")
     client = ProwlarrClient(cfg.prowlarr_url, cfg.prowlarr_api_key)
-    found = [ix for ix in search_indexers(client, cfg.tracker_aliases) if ix["key"] == cfg.upload_tracker]
+    found = [ix for ix in search_indexers(client, cfg.tracker_aliases) if ix["key"] == tracker]
     if not found:
-        raise UploadError(f"no enabled Prowlarr indexer for {cfg.upload_tracker}: the duplicate check needs one")
+        raise UploadError(f"no enabled Prowlarr indexer for {tracker}: the duplicate check needs one")
     return client, found[0]
 
 
@@ -371,11 +416,14 @@ def naming(name, release, tech):
     return blocking, warnings
 
 
-def check(cfg, snapshot, index):
+def check(cfg, snapshot, index, tracker=None):
     """{'verdict': clear|warn|blocked|incomplete, 'reasons', 'matches', 'tmdb', 'languages', ...}."""
+    tracker = tracker or cfg.upload_tracker
+    if tracker not in (snapshot.get("summary", {}).get("target_trackers") or []):
+        raise UploadError(f"unknown tracker: {tracker}")
     entry = match._entry(snapshot, index)
-    if cfg.upload_tracker in (entry.get("trackers") or []):
-        raise UploadError(f"already seeded on {cfg.upload_tracker}")
+    if tracker in (entry.get("trackers") or []):
+        raise UploadError(f"already seeded on {tracker}")
     if not is_film(cfg, entry):
         raise UploadError("films only: this entry looks like a series")
     spec = create.content(cfg, entry)
@@ -415,7 +463,7 @@ def check(cfg, snapshot, index):
         reasons.append("TMDB knows no film of that title and year: the tracker may not identify it")
 
     # The tracker itself, through Prowlarr.
-    client, indexer = _indexer(cfg)
+    client, indexer = _indexer(cfg, tracker)
     local = {
         "titles": [n for n in {_norm(t) for t in ident["titles"] + [release["title"]]} if n],
         "year": release["year"],
@@ -478,6 +526,11 @@ def check(cfg, snapshot, index):
     elif errors:
         verdict = "incomplete"
         reasons.insert(0, f"{len(errors)} search(es) failed: the tracker may have it")
+    elif not results:
+        # Not one result, even for the title alone: the indexer answered empty (down, limited),
+        # which proves nothing. Never "clear" on that.
+        verdict = "incomplete"
+        reasons.insert(0, "the tracker returned no result at all, not even other releases: it may be down, try later")
     elif "same_resolution" in kinds or reasons:
         verdict = "warn"
         if "same_resolution" in kinds:
@@ -486,6 +539,8 @@ def check(cfg, snapshot, index):
         verdict = "clear"
     result = {
         "index": int(index),
+        "path": entry["path"],
+        "tracker": tracker,
         "name": name,
         "size": spec["total"],
         "verdict": verdict,
@@ -499,8 +554,7 @@ def check(cfg, snapshot, index):
         "languages": languages,
         "at": time.time(),
     }
-    with _lock:
-        _checks[int(index)] = result
+    _store_check(cfg, result)
     return result
 
 
@@ -614,8 +668,7 @@ def start(cfg, qbt_factory, snapshot, indexes):
     jobs = []
     for index in indexes:
         entry = match._entry(snapshot, index)
-        with _lock:
-            done = _checks.get(int(index))
+        done = stored_check(cfg, entry["path"], cfg.upload_tracker)
         if not done or time.time() - done["at"] > CHECK_TTL_S:
             raise UploadError(f"{os.path.basename(entry['name'])}: check it first")
         if done["verdict"] not in ("clear", "warn"):
@@ -681,8 +734,7 @@ def _run(cfg, qbt_factory, snapshot, job):
         labels = ", ".join(nfo.LABELS[k] for k in found["missing"])
         raise UploadError(f"the .nfo misses {labels}: create it from the Library to fill them, then upload by hand")
     text = nfo_text(cfg, spec["name"], found, spec["total"])
-    with _lock:
-        checked = _checks.get(job["entry"]) or {}
+    checked = stored_check(cfg, entry["path"], cfg.upload_tracker) or {}
     fields = found["fields"]
     values = {
         "name": spec["name"],
@@ -765,28 +817,28 @@ def _run(cfg, qbt_factory, snapshot, job):
     )
 
 
-def handle(cfg, qbt_factory, body):
-    """HTTP helper for POST /api/upload: (status code, response dict).
-
-    {"op": "check", "entry": i} | {"op": "send", "entries": [i, ...]}
-    | {"op": "review", "candidate": id, "reason": text}"""
+def _body(body):
     try:
         request_ = json.loads(body or b"{}")
-        if not isinstance(request_, dict):
-            raise ValueError
     except ValueError:
+        return None
+    return request_ if isinstance(request_, dict) else None
+
+
+def handle_check(cfg, body):
+    """HTTP helper for POST /api/check: (status code, response dict).
+
+    {"op": "check", "entry": i, "tracker": key} | {"op": "review", "candidate": id, "reason": text}"""
+    request_ = _body(body)
+    if request_ is None:
         return 400, {"error": "invalid JSON body"}
-    if not cfg.upload_enabled:
-        return 404, {"error": "no upload API configured ([upload] tracker and [upload.api])"}
     if not cfg.actions:
         return 403, {"error": "actions are disabled ([service] actions = true to enable)"}
     op = request_.get("op")
     try:
         snapshot = match.load_snapshot(cfg)
         if op == "check":
-            return 200, check(cfg, snapshot, request_.get("entry"))
-        if op == "send":
-            return 200, {"jobs": start(cfg, qbt_factory, snapshot, request_.get("entries"))}
+            return 200, check(cfg, snapshot, request_.get("entry"), str(request_.get("tracker") or "") or None)
         if op == "review":
             return 200, keep(cfg, snapshot, request_.get("candidate"), request_.get("reason"))
     except (UploadError, create.CreateError, match.MatchError, nfo.NfoError, tf.TorrentError) as exc:
@@ -798,8 +850,44 @@ def handle(cfg, qbt_factory, body):
     return 400, {"error": f"unknown op: {op!r}"}
 
 
+def checks_overview(cfg):
+    """GET /api/checks: trackers a check can search, and the stored results."""
+    try:
+        snapshot = match.load_snapshot(cfg)
+    except match.MatchError as exc:
+        return 400, {"error": str(exc)}
+    try:
+        trackers = checkable(cfg)
+    except ApiError:
+        trackers = []
+    return 200, {"trackers": trackers, "checks": checks_view(cfg, snapshot), "actions": cfg.actions}
+
+
+def handle(cfg, qbt_factory, body):
+    """HTTP helper for POST /api/upload: (status code, response dict). {"op": "send", "entries": [i, ...]}"""
+    request_ = _body(body)
+    if request_ is None:
+        return 400, {"error": "invalid JSON body"}
+    if not cfg.upload_enabled:
+        return 404, {"error": "no upload API configured ([upload] tracker and [upload.api])"}
+    if not cfg.actions:
+        return 403, {"error": "actions are disabled ([service] actions = true to enable)"}
+    op = request_.get("op")
+    try:
+        snapshot = match.load_snapshot(cfg)
+        if op == "send":
+            return 200, {"jobs": start(cfg, qbt_factory, snapshot, request_.get("entries"))}
+    except (UploadError, create.CreateError, match.MatchError, nfo.NfoError, tf.TorrentError) as exc:
+        return 400, {"error": str(exc)}
+    except ApiError as exc:
+        return 502, {"error": str(exc)}
+    except OSError as exc:
+        return 500, {"error": f"file access: {exc}"}
+    return 400, {"error": f"unknown op: {op!r}"}
+
+
 def overview(cfg, qbt_factory):
-    """GET /api/upload: status and candidates."""
+    """GET /api/upload: API status and the torrents kept for review."""
     if not cfg.upload_enabled:
         return 404, {"error": "no upload API configured ([upload] tracker and [upload.api])"}
     try:
@@ -810,9 +898,4 @@ def overview(cfg, qbt_factory):
         state = status(cfg, qbt_factory(), snapshot)
     except ApiError as exc:
         state = {"access": str(exc)}
-    return 200, {
-        "status": state,
-        "actions": cfg.actions,
-        "films": candidates(cfg, snapshot),
-        "reviews": reviews(cfg),
-    }
+    return 200, {"status": state, "actions": cfg.actions, "reviews": reviews(cfg)}

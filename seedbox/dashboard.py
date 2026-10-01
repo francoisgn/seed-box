@@ -186,7 +186,7 @@ SECTIONS = {
     <div class="table-wrap"><table id="lib-table">
       <thead><tr><th style="width:48px"><input type="checkbox" id="lib-all" aria-label="Select all shown"></th>
       <th data-sort="coverage">Status</th><th data-sort="name">Name</th><th class="opt" data-sort="trackers">Trackers</th>
-      <th class="num" data-sort="size">Size</th><th class="num opt" data-sort="uploaded">Uploaded</th><th class="num" data-sort="issues">Issues</th></tr></thead>
+      <th class="num" data-sort="size">Size</th><th class="num opt" data-sort="uploaded">Uploaded</th><th class="num" data-sort="issues">Issues</th><th class="opt">Check</th></tr></thead>
       <tbody id="lib-body"></tbody></table></div>
     <p class="empty" id="lib-empty" hidden>No entry matches.</p>
     <div class="more" id="lib-more"></div>
@@ -198,34 +198,15 @@ SECTIONS = {
     <button class="btn filled sm" id="batch-move" type="button">Move</button>
     <button class="btn sm" id="batch-recheck" type="button">Recheck</button>
     <button class="btn sm" id="batch-start" type="button">Start</button>
+    <span class="chips" id="batch-check"></span>
     <button class="btn sm" id="batch-clear" type="button">Clear selection</button>
   </div>
 </section>""",
     "upload": """<section id="upload" hidden>
-  <div class="section-head"><h2 id="up-title">Upload</h2><span class="muted">films of the library missing on this tracker: check, then send</span></div>
+  <div class="section-head"><h2 id="up-title">Upload</h2><span class="muted">sending through the tracker's upload API; checks are in the library</span></div>
   <div class="grid">
     <div class="card c12"><div class="card-head"><h3>Tracker API</h3></div><div id="up-status"><p class="empty">Loading…</p></div></div>
-    <div class="card c12">
-      <div class="card-head"><h3>Films missing there</h3><span class="sub muted small" id="up-count"></span></div>
-      <label class="search lib-search"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM15.5 15.5L20 20"/></svg>
-        <input id="up-q" type="search" placeholder="Filter by name or folder" aria-label="Filter by name or folder"></label>
-      <div class="chips" id="up-filters" style="margin-bottom:16px"></div>
-      <div class="table-wrap"><table class="dense">
-        <thead><tr><th style="width:48px"><input type="checkbox" id="up-all" aria-label="Select all shown"></th>
-        <th data-up-sort="name">Name</th><th data-up-sort="resolution">Res.</th><th data-up-sort="language">Lang.</th>
-        <th class="num" data-up-sort="size">Size</th><th class="opt" data-up-sort="trackers">Seeded on</th>
-        <th class="num" data-up-sort="seeds">Seeders</th><th class="num opt" data-up-sort="uploaded">Uploaded</th>
-        <th data-up-sort="check">Check</th></tr></thead>
-        <tbody id="up-rows"></tbody></table></div>
-      <div class="more" id="up-more"></div>
-    </div>
     <div class="card c12"><div class="card-head"><h3>Kept for review</h3><span class="sub muted small">tracker .torrent files in review/, to be matched to the library by hand</span></div><div id="up-reviews"></div></div>
-  </div>
-  <div class="batch" id="up-batch">
-    <b id="up-batch-count"></b>
-    <button class="btn sm" id="up-check" type="button">Check</button>
-    <button class="btn filled sm" id="up-send" type="button">Send</button>
-    <button class="btn sm" id="up-clear" type="button">Clear selection</button>
   </div>
 </section>""",
     "logs-sec": """<section id="logs-sec">

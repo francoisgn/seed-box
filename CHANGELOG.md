@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.1.0
+
+- Library and Upload merged: checks run from the library, on every tracker
+  with a Prowlarr indexer (not only the one with an upload API): **Check on**
+  a tracker in the selection bar, or in an entry's detail with its result
+  (releases found there, Verify / Inject, Keep for review, TMDB, MediaInfo).
+  A Check column and chips (check result, resolution, language) in the
+  library. The Upload section keeps the API's state and the torrents kept
+  for review.
+- Check results are kept in `<output>/checks.json` by file and tracker:
+  they survive restarts and new collections, nothing is checked twice.
+- A tracker answering no result at all to every search (down, rate limited)
+  gives "search failed", no longer "clear".
+- The .torrent creation button is disabled for a tracker whose check found
+  the release already there.
+
 ## 2.0.3
 
 - Upload section, films missing there: a **Create .torrent + .nfo** button in

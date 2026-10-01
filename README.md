@@ -144,6 +144,29 @@ the passkey, so the dashboard serves it only through its API, actions enabled.
 At most `output.created_max` (10) are kept: the next one replaces the oldest, or
 delete them from the jobs list once uploaded.
 
+### Checks against a tracker
+
+Before creating or uploading a film for a tracker it is missing on, the
+library checks it there (**Check on** a tracker, from the selection bar or an
+entry's detail), on every tracker with a Prowlarr indexer:
+
+- targeted searches on that tracker through Prowlarr (title + year + group,
+  + resolution, then title + year): a release of the same size (±1 %) or the
+  same group and resolution blocks it; a tracker answering nothing at all
+  (down, rate limited) gives "search failed", never "clear";
+- MediaInfo against the name: a language, resolution or codec the file does
+  not have blocks it (a name says what the file holds); spaces, a missing year
+  or resolution are pointed out;
+- TMDB: the film the tracker should identify from the name, with its link;
+- a release the tracker already has: **Verify** it against the local file and
+  **Inject** it (release matching), or **Keep for review**: its `.torrent`
+  goes to `<output>/review/` with a JSON of the local entry (paths, files on
+  disk, files in the torrent), to be matched by hand.
+
+Results are kept in `<output>/checks.json`, by file and tracker, across
+restarts and collections: a column and filter chips in the library show them,
+with resolution and language chips.
+
 ### Upload API
 
 A tracker with an upload API (`.torrent` and `.nfo` sent over HTTPS, the
@@ -152,23 +175,10 @@ page once `[upload]` names it. seedbox knows no tracker: `[upload.api]`
 describes that tracker's API as its documentation does (paths, headers, form
 fields, answer codes, limits; see [`seedbox.example.toml`](seedbox.example.toml)),
 with placeholders such as `{tmdb_id}` or `{year}` for values taken from the
-film. The page lists the library's films missing there, with filters
-(resolution, language, trackers already seeding it, seeders, upload), and two
-steps:
+film. The section shows the API's answer to the probe and the torrents kept
+for review;
 
-- **Check**, per film:
-  - targeted searches on that tracker through Prowlarr (title + year + group,
-    + resolution, then title + year): a release of the same size (±1 %) or the
-    same group and resolution blocks it;
-  - MediaInfo against the name: a language, resolution or codec the file does
-    not have blocks it (a name says what the file holds); spaces, a missing
-    year or resolution are pointed out;
-  - TMDB: the film the tracker should identify from the name, with its link.
-  - A release the tracker already has: **Verify** it against the local file
-    and **Inject** it (release matching), or **Keep for review**: its
-    `.torrent` goes to `<output>/review/` with a JSON of the local entry
-    (paths, files on disk, files in the torrent), to be matched by hand.
-- **Send**, checked films only, one at a time: the `.torrent` and `.nfo` are
+**Send**, films checked on that tracker only, one at a time: the `.torrent` and `.nfo` are
   created as above, sent, and on acceptance the same torrent is seeded from the
   library file. Answers marked for review stop there and are never retried;
   the rate limit and `Retry-After` are respected; each answer is logged in
