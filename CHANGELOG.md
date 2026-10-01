@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.0.3
+
+- Upload section, films missing there: a **Create .torrent + .nfo** button in
+  each film's detail (the library's dialog, for that tracker), to upload by
+  hand on the tracker's site while sending through its API is off. Disabled
+  when the check found the release already there: seed that one instead.
+
 ## 2.0.2
 
 - Library page: the Upload link of the rail and its section are there from

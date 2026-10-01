@@ -126,10 +126,27 @@ function shown() {
   });
   return rows;
 }
+// Create the .torrent and .nfo by hand (the library's dialog), for an upload through the
+// tracker's site while sending through its API is off. Not for a release it already has.
+function createButton(f) {
+  var c = CHECKS[f.index], blocked = c && c.verdict === 'blocked', entry = D.entries[f.index];
+  return el('div', {'class': 'cell-flex', style: 'flex-wrap:wrap'}, [
+    el('button', {'class': 'btn sm', type: 'button', disabled: blocked || !DATA.actions || !entry ? true : null,
+      title: blocked ? 'The tracker already has this release: seed it instead (Verify, Inject)' : 'Hashed on the server, the .torrent and .nfo download when ready',
+      onclick: function (ev) {
+        ev.stopPropagation();
+        toast('Reading the file with MediaInfo…');
+        api('api/create', {op: 'describe', entry: f.index}).then(function (desc) { releaseForm(entry, DATA.status.tracker, desc); },
+          function (err) { toast('Failed: ' + err.message); });
+      }}, [icon('collect', 'sm'), 'Create .torrent + .nfo']),
+    el('span', {'class': 'muted small', text: c ? '' : 'Check it first: the tracker may already have it.'})]);
+}
 function detail(f) {
   var c = CHECKS[f.index];
-  if (!c) return el('p', {'class': 'small muted', text: 'Not checked in this session: select it, then Check.'});
+  if (!c) return el('div', {'class': 'small', style: 'display:flex;flex-direction:column;gap:8px'}, [createButton(f),
+    el('p', {'class': 'small muted', text: 'Not checked in this session: select it, then Check.'})]);
   var box = el('div', {'class': 'small', style: 'display:flex;flex-direction:column;gap:8px'});
+  box.appendChild(createButton(f));
   (c.reasons || []).forEach(function (r) { box.appendChild(el('div', {text: '• ' + r})); });
   if (c.languages && c.languages.audio) {
     box.appendChild(el('div', {text: 'MediaInfo: ' + c.languages.group + ' · audio ' + (c.languages.audio.join(', ') || '?') +
