@@ -12,7 +12,20 @@ import threading
 import urllib.parse
 from datetime import datetime
 
-from seedbox import __version__, actions, collect, create, match, metrics, prowlarr, report, status, ui
+from seedbox import (
+    __version__,
+    actions,
+    collect,
+    create,
+    dashboard,
+    match,
+    metrics,
+    prowlarr,
+    report,
+    status,
+    ui,
+    upload,
+)
 from seedbox import schedule as sched
 from seedbox.api import ApiError
 from seedbox.config import ConfigError, fingerprint, load
@@ -179,6 +192,9 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
     POST /api/action   move, recheck, start, skip extras, remove ([service] actions)
     POST /api/match    release matching: search, verify, apply ([service] actions)
     POST /api/create   create a .torrent for a tracker, then seed it ([service] actions)
+    GET  /upload       upload page, when an upload API is configured ([upload])
+    GET  /api/upload   upload API access, settings and the films missing on that tracker
+    POST /api/upload   check a film against the tracker, send checked films ([service] actions)
     GET  /api/created  download a created .torrent or its .nfo (?job=id&file=nfo, [service] actions)
     POST /api/errors/clear  hide the qBittorrent warnings and errors logged so far
 
@@ -227,12 +243,34 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
             return self._send(200, self.service.collect_state())
         if path == "/api/created":
             return self._created(params.get("job", ""), params.get("file", "torrent"))
+        if path == "/api/upload":
+            code, result = upload.overview(self.cfg, self._client)
+            return self._send(code, result)
+        if path in ("/upload", "/upload.html"):
+            return self._upload_page()
         created = os.path.realpath(os.path.join(self.cfg.output_dir, "created"))
         served = os.path.realpath(self.translate_path(self.path))
         if served == created or served.startswith(created + os.sep):
             # Created .torrent files hold the passkey: only through /api/created.
             return self._send(404, {"error": "not found"})
         return super().do_GET()
+
+    def _upload_page(self, head=False):
+        if not self.cfg.upload_enabled:
+            return self._send(404, {"error": "no upload API configured"})
+        data = dashboard.render_upload().encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        if not head:
+            self.wfile.write(data)
+
+    def do_HEAD(self):
+        if self.path.partition("?")[0] in ("/upload", "/upload.html"):
+            return self._upload_page(head=True)
+        return super().do_HEAD()
 
     def _created(self, job_id, kind):
         if not self.cfg.actions:
@@ -278,6 +316,9 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
             return self._send(code, result)
         if path == "/api/create":
             code, result = create.handle(self.cfg, self._client, body)
+            return self._send(code, result)
+        if path == "/api/upload":
+            code, result = upload.handle(self.cfg, self._client, body)
             return self._send(code, result)
         if path == "/api/collect":
             if not self.cfg.actions:

@@ -33,7 +33,7 @@ KEEP_DONE_S = 7 * 86400
 KEEP_JOBS = 60
 FINISHED = ("done", "failed", "cancelled")
 # Jobs run by a background worker (release matching, torrent creation), which writes their status.
-WORKER_ACTIONS = ("inject", "rename", "create", "seed")
+WORKER_ACTIONS = ("inject", "rename", "create", "seed", "upload")
 WORKER_MAX_S = 13 * 3600
 CHECKING = ("checkingDL", "checkingUP", "checkingResumeData")
 STOPPED = ("stoppedDL", "stoppedUP", "pausedDL", "pausedUP")

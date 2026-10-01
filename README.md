@@ -89,7 +89,9 @@ actions enabled) searches the other way:
 
 1. **Search**: every title TMDB knows the film under (French, English,
    original) with its year, plus its IMDb id where the indexer supports it, on
-   each Prowlarr indexer. A result of **exactly the file's size** is a candidate;
+   each Prowlarr indexer. Some indexers return 50 results at most, fewer than a
+   popular title has releases: title + year + release group, then + resolution,
+   are searched first. A result of **exactly the file's size** is a candidate;
    the TMDB id can be given when the name is too far off.
 2. **Verify**: fetch the candidate's `.torrent` and hash a sample of its pieces
    from the local file. Same SHA-1, same bytes: the release is proven, whatever
@@ -141,6 +143,44 @@ A copy stays in `<output>/created/` for the Seed button, owner-only: it holds
 the passkey, so the dashboard serves it only through its API, actions enabled.
 At most `output.created_max` (10) are kept: the next one replaces the oldest, or
 delete them from the jobs list once uploaded.
+
+### Upload API
+
+A tracker with an upload API (`.torrent` and `.nfo` sent over HTTPS, the
+release page built by the tracker) gets an **Upload page** next to the
+dashboard once `[upload]` names it. seedbox knows no tracker: `[upload.api]`
+describes that tracker's API as its documentation does (paths, headers, form
+fields, answer codes, limits; see [`seedbox.example.toml`](seedbox.example.toml)),
+with placeholders such as `{tmdb_id}` or `{year}` for values taken from the
+film. The page lists the library's films missing there, with filters
+(resolution, language, trackers already seeding it, seeders, upload), and two
+steps:
+
+- **Check**, per film:
+  - targeted searches on that tracker through Prowlarr (title + year + group,
+    + resolution, then title + year): a release of the same size (±1 %) or the
+    same group and resolution blocks it;
+  - MediaInfo against the name: a language, resolution or codec the file does
+    not have blocks it (a name says what the file holds); spaces, a missing
+    year or resolution are pointed out;
+  - TMDB: the film the tracker should identify from the name, with its link.
+- **Send**, checked films only, one at a time: the `.torrent` and `.nfo` are
+  created as above, sent, and on acceptance the same torrent is seeded from the
+  library file. Answers marked for review stop there and are never retried;
+  the rate limit and `Retry-After` are respected; each answer is logged in
+  `uploads.jsonl`.
+
+The `.nfo` opens with a drawing of the seedbox pirate at his computer and
+"automated through seedbox" (no link), then the release, its fields, its
+video, audio and subtitle tracks, and MediaInfo's full report; the drawing
+goes if the tracker's size limit requires it, and the text never holds a path
+of the machine.
+
+The passkey goes only in the configured headers: taken from the tracker's
+announce URL in qBittorrent (or `SEEDBOX_UPLOAD_PASSKEY`), never in a URL, a
+form field, a log or the page. Sending stays off (`[upload] send = false`)
+until the tracker approved the account and you checked its upload rules; the
+page shows the API's answer to the probe.
 
 ### Live panels
 
@@ -249,6 +289,11 @@ the `_FILE` suffix (Docker secrets), e.g. `SEEDBOX_QBT_PASSWORD_FILE`.
 | | `library.link_dirs`: cross-seed link folder names | `[".cross-seed"]` |
 | | `library.transient_dir`: folder of partial and one-off downloads | none |
 | | `cross_seed.db`, `cross_seed.link_category` | `/cross-seed/cross-seed.db`, `cross-seed-link` |
+| | `upload.tracker` and `[upload.api]`: tracker with an upload API, and that API | none = off |
+| `SEEDBOX_UPLOAD_PASSKEY` | `upload.passkey` | from the announce URL in qBittorrent |
+| | `upload.send`: real uploads, once approved and the rules checked | `false` |
+| | `upload.nfo`: `seedbox` (header, summary, MediaInfo) or `mediainfo` (report only) | `seedbox` |
+| | `upload.roots`: roots holding films | all, series told by name |
 
 ## Output
 
@@ -262,6 +307,7 @@ the `_FILE` suffix (Docker secrets), e.g. `SEEDBOX_QBT_PASSWORD_FILE`.
 | `jobs.json` | actions sent from the dashboard and their status |
 | `created/` | the last `.torrent` files created for upload (passkey inside, not served as files) |
 | `metrics.jsonl` | host and qBittorrent samples |
+| `uploads.jsonl` | upload API answers: name, size, infohash, code, torrent id |
 
 The coverage curve appears from the second run.
 

@@ -27,7 +27,8 @@ def request(url, data=None, headers=None, timeout=60, raw=False):
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return resp.status, read(resp), resp.headers
     except urllib.error.HTTPError as exc:
-        return exc.code, read(exc), exc.headers
+        with exc:
+            return exc.code, read(exc), exc.headers
     except (urllib.error.URLError, TimeoutError, OSError, ValueError) as exc:
         # ValueError: a redirect to a scheme urllib cannot open (magnet:).
         raise ApiError(f"{urllib.parse.urlsplit(url).netloc}: {exc}") from exc
@@ -36,15 +37,15 @@ def request(url, data=None, headers=None, timeout=60, raw=False):
 def multipart(fields, files):
     """(body, content type) for a multipart/form-data POST.
 
-    fields: {name: str}; files: {name: (filename, bytes)}."""
+    fields: {name: str}; files: {name: (filename, bytes[, content type])}."""
     boundary = "seedbox" + uuid.uuid4().hex
     parts = []
     for name, value in fields.items():
         parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"\r\n\r\n{value}\r\n'.encode())
-    for name, (filename, content) in files.items():
+    for name, (filename, content, *ctype) in files.items():
         head = (
             f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="{filename}"\r\n'
-            "Content-Type: application/x-bittorrent\r\n\r\n"
+            f"Content-Type: {ctype[0] if ctype else 'application/x-bittorrent'}\r\n\r\n"
         )
         parts.append(head.encode() + content + b"\r\n")
     parts.append(f"--{boundary}--\r\n".encode())

@@ -156,8 +156,8 @@ class Jobs(unittest.TestCase):
         self.assertNotIn("SECRETPASSKEY", json.dumps(actions.load_jobs(self.cfg)))
         with open(create.path_for(self.cfg, job, "nfo"), encoding="utf-8") as handle:
             text = handle.read()
-        self.assertIn("Title       : Some Entry", text)
-        self.assertIn("---- MediaInfo ----", text)
+        self.assertIn("  TITLE      Some Entry\n", text)
+        self.assertIn(" MEDIAINFO\n", text)
         with self.assertRaisesRegex(nfo.NfoError, "Year"):
             create.start(self.cfg, qbt, self.snapshot, 0, KEY, dict(FIELDS, year=" "))
 

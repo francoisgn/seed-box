@@ -5,7 +5,10 @@ cross-seed, which searches by name. Here the search goes the other way:
 
 1. search: every title TMDB knows the film under (French, English, original)
    plus the year, and the IMDb id where the indexer supports it, on each
-   Prowlarr indexer. A result of exactly the file's size is a candidate.
+   Prowlarr indexer. Some indexers return at most 50 results: a popular title
+   has more releases than that, so the release group and the resolution of the
+   file name are searched first (title + year + group, title + year +
+   resolution). A result of exactly the file's size is a candidate.
 2. verify: fetch the candidate's .torrent and hash a sample of its pieces from
    the local file: same bytes, same release.
 3. apply, in the background (a job):
@@ -28,7 +31,7 @@ import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 
-from seedbox import actions, titles, tmdb
+from seedbox import actions, nfo, titles, tmdb
 from seedbox import torrentfile as tf
 from seedbox.api import ApiError
 from seedbox.config import map_path, unmap_path
@@ -178,11 +181,20 @@ def identity(cfg, name, tmdb_id=None):
     return ident
 
 
-def _queries(ident, indexer):
-    out = [f"{t} {ident['year']}".strip() for t in ident["titles"]]
+def queries(ident, indexer, release=None):
+    """Most precise first: title + year + group, title + year + resolution (two
+    titles at most), then title + year for every title, then the IMDb id.
+
+    release: {'group', 'resolution'} from the file name (nfo.from_name)."""
+    release = release or {}
+    out = []
+    for extra in (release.get("group"), release.get("resolution")):
+        if extra:
+            out += [" ".join(x for x in (t, ident["year"], extra) if x) for t in ident["titles"][:2]]
+    out += [f"{t} {ident['year']}".strip() for t in ident["titles"]]
     if indexer["imdb"] and ident.get("imdb"):
         out.append(f"{{ImdbId:{ident['imdb']}}}")
-    return out
+    return list(dict.fromkeys(out))
 
 
 def _search_indexer(client, indexer, queries):
@@ -203,10 +215,11 @@ def search(cfg, snapshot, index, qbt=None, tmdb_id=None):
     local = _check_library_path(cfg, main_file(cfg, entry))
     size = os.path.getsize(local)
     ident = identity(cfg, os.path.basename(local), tmdb_id)
+    release = nfo.from_name(os.path.basename(local))
     client = ProwlarrClient(cfg.prowlarr_url, cfg.prowlarr_api_key)
     indexers = search_indexers(client, cfg.tracker_aliases)
     with ThreadPoolExecutor(max_workers=max(len(indexers), 1)) as pool:
-        done = list(pool.map(lambda ix: _search_indexer(client, ix, _queries(ident, ix)), indexers))
+        done = list(pool.map(lambda ix: _search_indexer(client, ix, queries(ident, ix, release)), indexers))
     live = {t["hash"] for t in qbt.torrents()} if qbt else set()
 
     seen, found, errors = set(), [], [e for _, errs in done for e in errs]

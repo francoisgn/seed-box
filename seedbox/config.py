@@ -78,6 +78,19 @@ class Config:
     metrics_interval: int = 300
     metrics_days: int = 14
 
+    # Upload API of one tracker (optional): checks, then .torrent + .nfo sent to it.
+    upload_tracker: str = ""
+    # The API as the tracker defines it ([upload.api]): requests, fields, answers.
+    upload_api: dict = field(default_factory=dict)
+    # Secret; empty = taken from the tracker's announce URL in qBittorrent.
+    upload_passkey: str = ""
+    # Real uploads stay off until the tracker approved the account and its rules were checked.
+    upload_send: bool = False
+    # .nfo sent: "seedbox" (header, summary, MediaInfo report) or "mediainfo" (the report only).
+    upload_nfo: str = "seedbox"
+    # Library roots holding films (empty = every root; series are told apart by name).
+    upload_roots: list = field(default_factory=list)
+
     source: str = ""
     warnings: list = field(default_factory=list)
 
@@ -86,9 +99,98 @@ class Config:
         return bool(self.prowlarr_url)
 
     @property
+    def upload_enabled(self):
+        return bool(self.upload_api and self.upload_tracker)
+
+    @property
     def match_enabled(self):
         """Release matching searches the trackers through Prowlarr."""
         return self.prowlarr_enabled
+
+
+# Values an [upload.api] template may use. {passkey} only in headers: never in a URL or a form field.
+UPLOAD_PLACEHOLDERS = {
+    "passkey",
+    "name",
+    "title",
+    "year",
+    "tmdb_id",
+    "imdb_id",
+    "size",
+    "resolution",
+    "language",
+    "group",
+}
+UPLOAD_ANSWER_DEFAULTS = {
+    "code": "code", "message": "message", "success": [], "review": [], "id": "id", "infohash": "",
+    "candidates": "", "candidate_name": "name", "retry_status": [429],
+}  # fmt: skip
+UPLOAD_LIMIT_DEFAULTS = {"per_hour": 30, "nfo_max_bytes": 65535, "torrent_max_bytes": 3 * 1048576}
+
+
+def _templates(where, values, passkey_ok):
+    import string
+
+    out = {}
+    for key, value in (values or {}).items():
+        if not isinstance(value, (str, int)) or isinstance(value, bool):
+            raise ConfigError(f"[upload.api] {where}.{key}: a string or a number")
+        value = str(value)
+        try:
+            names = {n for _, n, _, _ in string.Formatter().parse(value) if n is not None}
+        except ValueError as exc:
+            raise ConfigError(f"[upload.api] {where}.{key}: {exc}") from exc
+        unknown = names - UPLOAD_PLACEHOLDERS
+        if unknown:
+            raise ConfigError(f"[upload.api] {where}.{key}: unknown placeholder {{{sorted(unknown)[0]}}}")
+        if "passkey" in names and not passkey_ok:
+            raise ConfigError(f"[upload.api] {where}.{key}: {{passkey}} goes in headers only")
+        out[str(key)] = value
+    return out
+
+
+def upload_profile(raw):
+    """[upload.api] checked and completed: every request, field and answer key
+    comes from the config, nothing about a given tracker is built in."""
+    if not raw:
+        return {}
+    if not isinstance(raw, dict):
+        raise ConfigError("[upload.api]: a table")
+    base = str(raw.get("base", "")).rstrip("/")
+    if not base.startswith("https://"):
+        raise ConfigError("[upload.api] base: an https:// URL (the passkey travels with each request)")
+    submit = raw.get("submit") or {}
+    for key in ("path", "torrent_field", "nfo_field"):
+        if not submit.get(key):
+            raise ConfigError(f"[upload.api] submit.{key} is required")
+    probe = raw.get("probe") or {}
+    answer = {**UPLOAD_ANSWER_DEFAULTS, **(raw.get("answer") or {})}
+    for key in ("success", "review", "retry_status"):
+        if not isinstance(answer[key], list):
+            raise ConfigError(f"[upload.api] answer.{key}: a list")
+    limits = {**UPLOAD_LIMIT_DEFAULTS, **(raw.get("limits") or {})}
+    try:
+        limits = {k: int(v) for k, v in limits.items()}
+    except (TypeError, ValueError) as exc:
+        raise ConfigError("[upload.api] limits: numbers") from exc
+    return {
+        "base": base,
+        "headers": _templates("headers", raw.get("headers"), True),
+        "probe": {"path": str(probe["path"]), "method": str(probe.get("method", "GET")).upper()}
+        if probe.get("path")
+        else {},
+        "submit": {
+            "path": str(submit["path"]),
+            "method": str(submit.get("method", "POST")).upper(),
+            "torrent_field": str(submit["torrent_field"]),
+            "nfo_field": str(submit["nfo_field"]),
+            "fields": _templates("submit.fields", submit.get("fields"), False),
+        },
+        "answer": answer,
+        "limits": limits,
+        "timeout": int(raw.get("timeout", 300)),
+        "passkey_pattern": str(raw.get("passkey_pattern", r"/([A-Za-z0-9]{8,64})/announce")),
+    }
 
 
 def _env(name):
@@ -168,6 +270,14 @@ def load(path=None):
     cfg.csv_delimiter = output.get("csv_delimiter", cfg.csv_delimiter)
     cfg.created_max = max(int(output.get("created_max", cfg.created_max)), 1)
 
+    upload = data.get("upload", {})
+    cfg.upload_tracker = str(upload.get("tracker", cfg.upload_tracker)).lower()
+    cfg.upload_api = upload_profile(upload.get("api"))
+    cfg.upload_passkey = upload.get("passkey", cfg.upload_passkey)
+    cfg.upload_send = bool(upload.get("send", cfg.upload_send))
+    cfg.upload_nfo = upload.get("nfo", cfg.upload_nfo)
+    cfg.upload_roots = [r.rstrip("/") for r in upload.get("roots", cfg.upload_roots)]
+
     service = data.get("service", {})
     cfg.schedule = service.get("schedule", cfg.schedule)
     cfg.interval_hours = float(service.get("interval_hours", cfg.interval_hours))
@@ -185,6 +295,7 @@ def load(path=None):
         "SEEDBOX_PROWLARR_URL": ("prowlarr_url", str),
         "SEEDBOX_PROWLARR_API_KEY": ("prowlarr_api_key", str),
         "SEEDBOX_TMDB_API_KEY": ("tmdb_api_key", str),
+        "SEEDBOX_UPLOAD_PASSKEY": ("upload_passkey", str),
         "SEEDBOX_OUTPUT_DIR": ("output_dir", str),
         "SEEDBOX_SCHEDULE": ("schedule", str),
         "SEEDBOX_INTERVAL_HOURS": ("interval_hours", float),
@@ -213,12 +324,18 @@ def load(path=None):
             sched.parse(cfg.schedule)
         except ValueError as exc:
             raise ConfigError(str(exc)) from exc
-    if found and (qbt.get("password") or prowlarr.get("api_key") or data.get("tmdb", {}).get("api_key")):
+    if found and (
+        qbt.get("password") or prowlarr.get("api_key") or data.get("tmdb", {}).get("api_key") or upload.get("passkey")
+    ):
         mode = os.stat(found).st_mode
         if mode & (stat.S_IRWXG | stat.S_IRWXO):
             cfg.warnings.append(f"{found} holds secrets but is readable by others (mode {mode & 0o777:o}), use 600")
     if not cfg.roots:
         raise ConfigError("no library root configured ([library] roots or SEEDBOX_ROOTS)")
+    if cfg.upload_api and not cfg.upload_tracker:
+        raise ConfigError("[upload.api] set without the tracker it belongs to ([upload] tracker)")
+    if cfg.upload_nfo not in ("mediainfo", "seedbox"):
+        raise ConfigError('[upload] nfo: "mediainfo" or "seedbox"')
     if cfg.prowlarr_enabled and not cfg.prowlarr_api_key:
         raise ConfigError("Prowlarr URL set without an API key (SEEDBOX_PROWLARR_API_KEY)")
     return cfg

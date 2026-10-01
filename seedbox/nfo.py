@@ -8,8 +8,10 @@ Two sources, merged:
   says nothing.
 
 Every field can be corrected in the dashboard before the .torrent is created;
-the mandatory ones must be filled. The .nfo ends with MediaInfo's full text
-report, the file's path replaced by the release name.
+the mandatory ones must be filled. The .nfo (UTF-8, its drawing in plain ASCII):
+a header (the pirate at his computer, "automated through seedbox"), the
+release, its fields, video, audio and subtitle tracks, then MediaInfo's full
+text report, the file's path replaced by the release name.
 """
 
 import json
@@ -172,7 +174,7 @@ def hdr(v):
 
 
 def _lang(track):
-    return (track.get("Language") or "").split("-")[0].lower()
+    return (track.get("Language") or "").split("-")[0].strip().lower()
 
 
 def from_mediainfo(tracks):
@@ -254,21 +256,70 @@ def _duration(seconds):
     return f"{h}h{m:02d}" if h else f"{m} min"
 
 
-def render(release, fields, details, report, size):
-    """The .nfo text."""
-    rows = [(LABELS[k], fields[k]) for k in FIELDS if fields.get(k)]
-    rows.append(("Release", release))
-    rows.append(
-        ("Size", f"{size / 1e9:.2f} GB" + (f", {details['files']} files" if details.get("files", 1) > 1 else ""))
-    )
+WIDTH = 78
+ART = r"""
+                        .------------------------------------.
+                        | o o o                              |
+                        | $ seedbox upload                   |
+                        | > mediainfo ................... ok |
+                        | > hash ........................ ok |
+                        | > nfo ......................... ok |
+                        | $ _                                |
+                        |____________________________________|
+                        \____________________________________/
+                                      |________|
+       ______________________        /__________\
+      |'-.__                 |
+    []|  _  '-.__  (######)  |\_
+      | |#|      '-(######)  |  \__     __________________________
+      |______________________|     \__ [::::::::::::::::::::::::::]
+         ||  ||        ||  ||
+"""
+SIGNATURE = "automated through seedbox"
+
+
+def _rows(label, values):
+    values = [v for v in values if v] or [""]
+    lines = [f"  {label.ljust(10)} {values[0]}"]
+    lines += [f"  {'':10} {v}" for v in values[1:]]
+    return lines
+
+
+def render(release, fields, details, report, size, max_bytes=0):
+    """The .nfo text. max_bytes: the tracker's limit (0 = none); the header
+    goes first when the text is too long, an error if it still is."""
+    rule, double = " " + "-" * (WIDTH - 1), " " + "=" * (WIDTH - 1)
+    files = details.get("files", 1)
+    head = _rows("RELEASE", [release])
+    head += _rows("SIZE", [f"{size / 1e9:.2f} GB" + (f", {files} files" if files > 1 else "")])
     if details.get("duration_s"):
-        rows.append(("Duration", _duration(details["duration_s"])))
-    for n, a in enumerate(details.get("audio") or [], 1):
-        text = " ".join(x for x in (a["language"].upper(), a["codec"], a["channels"]) if x)
-        rows.append((f"Audio #{n}", text + (f" ({a['title']})" if a["title"] else "")))
-    for n, s in enumerate(details.get("subtitles") or [], 1):
-        text = (s["language"].upper() or "?") + (" forced" if s["forced"] else "")
-        rows.append((f"Subtitles #{n}", text + (f" ({s['title']})" if s["title"] else "")))
-    width = max(len(label) for label, _ in rows)
-    lines = [f"{label.ljust(width)} : {value}" for label, value in rows]
-    return "\n".join(lines) + "\n\n---- MediaInfo ----\n\n" + report.strip() + "\n"
+        head += _rows("DURATION", [_duration(details["duration_s"])])
+    about = []
+    for key in ("title", "year", "language", "source", "group"):
+        if fields.get(key):
+            about += _rows(LABELS[key].upper(), [fields[key]])
+    video = " / ".join(fields[k] for k in ("resolution", "video_codec", "bit_depth", "hdr") if fields.get(k))
+    tracks = _rows("VIDEO", [video])
+    audio = [
+        " ".join(x for x in (f"#{n}", a["language"].upper(), a["codec"], a["channels"]) if x)
+        + (f" ({a['title']})" if a["title"] else "")
+        for n, a in enumerate(details.get("audio") or [], 1)
+    ]
+    if not audio and fields.get("audio_codec"):
+        audio = [" ".join(fields[k] for k in ("audio_codec", "channels") if fields.get(k))]
+    tracks += _rows("AUDIO", audio)
+    subs = [
+        f"#{n} {s['language'].upper() or '?'}"
+        + (" forced" if s["forced"] else "")
+        + (f" ({s['title']})" if s["title"] else "")
+        for n, s in enumerate(details.get("subtitles") or [], 1)
+    ]
+    tracks += _rows("SUBTITLES", subs or ["none"])
+    body = [double, *head, rule, *about, rule, *tracks, double, "", " MEDIAINFO", rule, ""]
+    tail = "\n".join(body) + "\n" + report.strip() + "\n"
+    text = ART.strip("\n") + "\n\n" + SIGNATURE.center(WIDTH).rstrip() + "\n" + tail
+    if max_bytes and len(text.encode()) > max_bytes:
+        text = SIGNATURE.center(WIDTH).rstrip() + "\n" + tail
+        if len(text.encode()) > max_bytes:
+            raise NfoError(f".nfo of {len(text.encode())} bytes, over the tracker's {max_bytes}")
+    return text

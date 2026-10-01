@@ -53,6 +53,50 @@ csv_delimiter = ","             # ";" opens straight in Excel with a French loca
 # .torrent files created for upload kept at most: the oldest is replaced.
 # created_max = 10
 
+[upload]
+# Optional: upload films missing on one tracker through its upload API (an
+# "Upload" page next to the dashboard). Off while [upload.api] is absent.
+# tracker = "tracker-a.example"      # tracker name as seedbox shows it
+# Passkey: a secret (SEEDBOX_UPLOAD_PASSKEY(_FILE)); empty = taken from that
+# tracker's announce URL in qBittorrent.
+# Real uploads stay off until the tracker approved your account for its API
+# and you checked its upload rules: checks and .torrent creation work anyway.
+# send = false
+# nfo = "seedbox"                    # "seedbox" (header, summary, MediaInfo) or "mediainfo" (report only)
+# roots = ["/media/movies"]          # roots holding films (empty = all, series told by name)
+
+# The API as the tracker documents it: seedbox knows no tracker, it follows
+# this description. Templates may use {name} {title} {year} {tmdb_id}
+# {imdb_id} {size} {resolution} {language} {group}; {passkey} in headers only.
+# [upload.api]
+# base = "https://www.tracker-a.example"
+# timeout = 300                      # seconds: the tracker may build its page before answering
+# passkey_pattern = "/([A-Za-z0-9]{8,64})/announce"   # where the passkey sits in the announce URL
+# [upload.api.headers]
+# Authorization = "Bearer {passkey}"
+# [upload.api.probe]                 # optional GET: may the account use the API? (answer shown on the page)
+# path = "/api/v1/categories"
+# [upload.api.submit]                # multipart POST
+# path = "/api/v1/uploads"
+# torrent_field = "torrent_file"
+# nfo_field = "nfo_file"
+# [upload.api.submit.fields]         # every other form field, as the tracker names it
+# category_id = "2100"
+# presentation_type = "html_auto"
+# [upload.api.answer]                # JSON keys of the answer ("a.b" for nested ones)
+# code = "code"
+# message = "message"
+# success = ["ACCEPTED", "ALREADY_ACCEPTED"]   # empty = any 2xx
+# review = ["DUPLICATE"]             # codes left for manual review, never retried
+# id = "torrent_id"
+# infohash = "info_hash"
+# candidates = "candidates"
+# retry_status = [429]               # wait Retry-After, then try again
+# [upload.api.limits]
+# per_hour = 30
+# nfo_max_bytes = 65535
+# torrent_max_bytes = 3145728
+
 [service]
 # `seedbox run` collects on schedule; at start only if never done, if the
 # config changed, or if a scheduled run was missed while it was down.

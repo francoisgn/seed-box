@@ -75,10 +75,22 @@ class Describe(unittest.TestCase):
             nfo.clean_fields(d["fields"])
         fields = nfo.clean_fields(dict(d["fields"], language=" FRENCH \n"))
         text = nfo.render("Some Entry (2012).avi", fields, d["details"], d["report"], 700_000_000)
-        self.assertIn("Language       : FRENCH", text)
-        self.assertIn("Video codec    : XviD", text)
-        self.assertIn("Duration       : 1h30", text)
+        self.assertIn("  LANGUAGE   FRENCH\n", text)
+        self.assertIn("  VIDEO      272p / XviD", text)
+        self.assertIn("  DURATION   1h30\n", text)
+        self.assertIn("automated through seedbox", text)
+        self.assertNotIn("http", text.split("MEDIAINFO")[0])  # no link
+        self.assertTrue(nfo.ART.isascii())
         self.assertTrue(text.rstrip().endswith("Some Entry (2012).avi"))
+        self.assertFalse([line for line in text.splitlines() if line != line.rstrip()])
+        # Over the tracker's limit: the header goes, then it is an error.
+        small = nfo.render(
+            "Some Entry (2012).avi", fields, d["details"], d["report"], 1, max_bytes=len(text.encode()) - 1
+        )
+        self.assertNotIn("(######)", small)
+        self.assertIn("automated through seedbox", small)
+        with self.assertRaisesRegex(nfo.NfoError, "over the tracker"):
+            nfo.render("Some Entry (2012).avi", fields, d["details"], d["report"], 1, max_bytes=100)
 
 
 if __name__ == "__main__":

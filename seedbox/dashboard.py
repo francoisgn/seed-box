@@ -234,3 +234,75 @@ def render(snap, history):
     # One pass over the template: inserted content is never scanned again, and
     # an "@" that is not a known placeholder (a URL) stays as is.
     return PLACEHOLDER.sub(lambda m: parts.get(m.group(1), m.group(0)), PAGE)
+
+
+UPLOAD_PAGE = """<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Seedbox upload</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;base64,@favicon@">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inconsolata:wght@400;500;600&display=swap">
+<style>@css@</style></head><body>
+
+<nav class="rail" aria-label="Pages">
+  <div class="flag">@flag@</div>
+  <a href="./"><span class="pill"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg></span>Dashboard</a>
+  <a href="#upload" class="active"><span class="pill"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20V8M7 13l5-5 5 5M5 4h14"/></svg></span>Upload</a>
+</nav>
+
+<header class="topbar">
+  <div class="crumbs"><span>Seedbox</span><span class="ver">v@version@</span><span aria-hidden="true">›</span><b id="crumb">Upload</b></div>
+  <div class="top-actions">
+    <button class="btn" id="reload" type="button"><svg class="icon sm" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7M20 4v5h-5"/></svg><span class="label">Refresh</span></button>
+  </div>
+</header>
+
+<main id="upload">
+<section>
+  <div class="section-head"><h2 id="title">Upload</h2><span class="muted">films of the library missing on this tracker: check, then send</span></div>
+  <div class="grid">
+    <div class="card c12"><div class="card-head"><h3>Tracker API</h3></div><div id="status"><p class="empty">Loading…</p></div></div>
+    <div class="card c12">
+      <div class="card-head"><h3>Films missing there</h3><span class="sub muted small" id="count"></span></div>
+      <label class="search lib-search"><svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M10.5 17a6.5 6.5 0 1 0 0-13 6.5 6.5 0 0 0 0 13zM15.5 15.5L20 20"/></svg>
+        <input id="q" type="search" placeholder="Filter by name or folder" aria-label="Filter by name or folder"></label>
+      <div class="chips" id="filters" style="margin-bottom:16px"></div>
+      <div class="table-wrap"><table class="dense">
+        <thead><tr><th style="width:48px"><input type="checkbox" id="all" aria-label="Select all shown"></th>
+        <th data-sort="name">Name</th><th data-sort="resolution">Res.</th><th data-sort="language">Lang.</th>
+        <th class="num" data-sort="size">Size</th><th class="opt" data-sort="trackers">Seeded on</th>
+        <th class="num" data-sort="seeds">Seeders</th><th class="num opt" data-sort="uploaded">Uploaded</th>
+        <th data-sort="check">Check</th></tr></thead>
+        <tbody id="rows"></tbody></table></div>
+      <div class="more" id="more"></div>
+    </div>
+  </div>
+  <div class="batch" id="batch">
+    <b id="batch-count"></b>
+    <button class="btn sm" id="check" type="button">Check</button>
+    <button class="btn filled sm" id="send" type="button">Send</button>
+    <button class="btn sm" id="clear" type="button">Clear selection</button>
+  </div>
+</section>
+</main>
+
+<div class="toast" id="toast" role="status"></div>
+<dialog id="dialog"></dialog>
+<script>@js@</script>
+</body></html>
+"""
+
+
+def render_upload():
+    """The upload page: a shell, its data comes from /api/upload."""
+    flag = _asset("flag.svg").strip()
+    parts = {
+        "favicon": base64.b64encode(flag.encode()).decode(),
+        "css": _asset("app.css"),
+        "flag": flag,
+        "version": __version__,
+        "js": _asset("upload.js"),
+    }
+    return PLACEHOLDER.sub(lambda m: parts.get(m.group(1), m.group(0)), UPLOAD_PAGE)

@@ -401,7 +401,7 @@ function confirmDialog(title, body, okLabel, checkbox, checked) {
   });
 }
 
-var ACTION_TEXT = {inject: 'Inject release', rename: 'Rename file', create: 'Create .torrent', seed: 'Seed created torrent',
+var ACTION_TEXT = {inject: 'Inject release', rename: 'Rename file', create: 'Create .torrent', seed: 'Seed created torrent', upload: 'Upload to tracker',
   move: 'Move', recheck: 'Recheck', start: 'Start', skip_extras: 'Skip missing extras', remove: 'Remove',
   set_category: 'Set category', apply_category: 'Apply category folder'
 };
@@ -458,6 +458,10 @@ function renderHero() {
   meta.appendChild(el('span', {'class': 'badge ' + (D.actions ? 'info' : ''), text: D.actions ? 'Actions enabled' : 'Read-only'}));
   meta.appendChild(el('span', {'class': 'badge', text: 'Everywhere = ' + S.target_trackers.map(function (k) { return TNAME[k] || k; }).join(', ')}));
   if (!LIVE) meta.appendChild(el('span', {'class': 'badge warn', text: 'Offline copy: live data unavailable'}));
+  // Upload page, when an upload API is configured (asked live: the config may be newer than this page).
+  if (LIVE) fetch('upload', {method: 'HEAD'}).then(function (r) {
+    if (r.ok) meta.appendChild(el('a', {'class': 'badge info', href: 'upload', text: 'Upload page →'}));
+  }, function () {});
 }
 
 // ---------- overview

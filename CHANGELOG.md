@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.8.0
+
+- Upload page for a tracker with an upload API, described in the config
+  (`[upload.api]`: paths, headers, fields, answer codes, limits; no tracker
+  built in): the library's films missing there, filters (resolution,
+  language, other trackers, seeders, upload), a check per film (targeted
+  searches on the tracker, the name against MediaInfo, TMDB), then upload,
+  one at a time, and seeding of the same torrent. Sending stays off until
+  `[upload] send = true`.
+- `.nfo` layout: the seedbox pirate in ASCII, "automated through seedbox",
+  release, fields, video, audio and subtitle tracks, then MediaInfo.
+- Release matching searches title + year + release group, then + resolution,
+  before title + year: some indexers return 50 results at most, and the
+  release sought was beyond them for popular titles.
+
 ## 1.7.3
 
 - A `.torrent` creation still queued can be cancelled from the jobs list (the
