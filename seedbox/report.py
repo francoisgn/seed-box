@@ -153,7 +153,7 @@ def write(cfg, snap):
     _atomic_write(os.path.join(out, "snapshot.json"), json.dumps(snap, ensure_ascii=False, indent=1))
 
     history = read_history(os.path.join(out, "history.csv"), delim)
-    return dashboard.write_pages(out, snap, history, _atomic_write)
+    return dashboard.write_pages(out, snap, history, _atomic_write, cfg.upload_enabled)
 
 
 def rerender(cfg):
@@ -166,5 +166,5 @@ def rerender(cfg):
     except (OSError, ValueError):
         return False
     history = read_history(os.path.join(out, "history.csv"), cfg.csv_delimiter)
-    dashboard.write_pages(out, snap, history, _atomic_write)
+    dashboard.write_pages(out, snap, history, _atomic_write, cfg.upload_enabled)
     return True

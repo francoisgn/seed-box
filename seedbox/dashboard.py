@@ -59,14 +59,14 @@ def _link(href, label, path, active=False, extra=""):
     )
 
 
-def _nav(page):
+def _nav(page, upload=False):
     sections = PAGES[page]["sections"]
     links = []
     for key, label, path in sorted((n for n in NAV if n[0] in sections), key=lambda n: sections.index(n[0])):
-        # The upload link shows only when an upload API answers (the page script unhides it).
-        links.append(
-            _link(f"#{key}", label, path, key == sections[0], ' hidden id="nav-upload"' if key == "upload" else "")
-        )
+        # The upload link is there from the start when an upload API is configured: shown
+        # later, it would push the links below it while they are being clicked.
+        extra = (' id="nav-upload"' + ("" if upload else " hidden")) if key == "upload" else ""
+        links.append(_link(f"#{key}", label, path, key == sections[0], extra))
     links.append('<hr class="rail-sep">')
     links += [_link(href, label, path) for href, label, path in OTHER[page]]
     return "\n  ".join(links)
@@ -254,15 +254,18 @@ def _embed(value):
     return json.dumps(value, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c")
 
 
-def _section(key, page):
+def _section(key, page, upload=False):
     html = SECTIONS[key]
+    if key == "upload" and upload:
+        html = html.replace('<section id="upload" hidden>', '<section id="upload">')
     if key == "activity" and page != "home":
         # Disk I/O and transfer belong to the home page; the library page keeps errors, jobs, busy torrents.
         html = re.sub(r'\n    <div class="card kpi c6" id="a-(io|transfer)" data-live></div>', "", html)
     return html
 
 
-def render(snap, history, page="home"):
+def render(snap, history, page="home", upload=False):
+    """upload: an upload API is configured (its section and link shown from the start)."""
     spec = PAGES[page]
     data = {k: v for k, v in snap.items() if k != "entries"}
     data["entries"] = [{k: v for k, v in e.items() if k != "path"} for e in snap["entries"]]
@@ -275,7 +278,7 @@ def render(snap, history, page="home"):
         + "\n\n<main>\n"
         + HERO
         + "\n\n"
-        + "\n\n".join(_section(k, page) for k in spec["sections"])
+        + "\n\n".join(_section(k, page, upload) for k in spec["sections"])
         + "\n</main>\n\n"
         + TAIL
     )
@@ -287,7 +290,7 @@ def render(snap, history, page="home"):
         "favicon": base64.b64encode(flag.encode()).decode(),
         "css": _asset("app.css"),
         "flag": flag,
-        "nav": _nav(page),
+        "nav": _nav(page, upload),
         "check": CHECK,
         "logo": _asset(spec["logo"]).strip(),
         "range": _range_chips(),
@@ -304,8 +307,8 @@ def render(snap, history, page="home"):
     return PLACEHOLDER.sub(lambda m: parts.get(m.group(1), m.group(0)), template)
 
 
-def write_pages(out, snap, history, write):
+def write_pages(out, snap, history, write, upload=False):
     """Every page into the output folder, with write(path, text). Returns the home page's path."""
     for page, spec in PAGES.items():
-        write(os.path.join(out, spec["file"]), render(snap, history, page))
+        write(os.path.join(out, spec["file"]), render(snap, history, page, upload))
     return os.path.join(out, PAGES["home"]["file"])

@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.0.2
+
+- Library page: the Upload link of the rail and its section are there from
+  the start when an upload API is configured (#6). They used to appear once
+  the API answered, a second later, pushing "Back Home" down under the
+  cursor.
+
 ## 2.0.1
 
 - Tracker chips look like the status badges (the tracker's colour faded

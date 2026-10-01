@@ -378,6 +378,12 @@ class Pipeline(unittest.TestCase):
         self.assertIn('id="a-io"', page)
         self.assertNotIn('id="a-io"', library)
         self.assertNotIn('id="a-transfer"', library)
+        # With an upload API configured, its link and section are there from the start (#6):
+        # appearing later, the link would push "Back Home" under the cursor.
+        self.assertIn('id="nav-upload" hidden', library)
+        configured = dashboard.render(snap, [], "library", upload=True)
+        self.assertIn('<section id="upload">', configured)
+        self.assertIn('id="nav-upload">', configured)
         self.assertIn("family=Inconsolata:wght@400", page)
         self.assertNotIn("/secret/path", page)
         with open(os.path.join(out, "snapshot.json"), encoding="utf-8") as handle:

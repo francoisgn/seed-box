@@ -294,8 +294,13 @@ function load() {
     (r.films || []).forEach(function (f) { if (f.check && !CHECKS[f.index]) CHECKS[f.index] = f.check; });
     renderStatus(); renderFilters(); renderRows(); renderReviews();
   }, function (e) {
-    // No upload API configured (404): the section stays hidden.
-    if (!/no upload API/.test(e.message)) { $('upload').hidden = false; clear($('up-status')).appendChild(el('p', {'class': 'empty', text: 'Unavailable: ' + e.message})); }
+    // No upload API configured (404, config changed since the page was written): hide the section.
+    if (/no upload API/.test(e.message)) {
+      $('upload').hidden = true;
+      if ($('nav-upload')) $('nav-upload').hidden = true;
+      return;
+    }
+    $('upload').hidden = false; clear($('up-status')).appendChild(el('p', {'class': 'empty', text: 'Unavailable: ' + e.message}));
   });
 }
 
