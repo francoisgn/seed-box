@@ -158,7 +158,9 @@ var S = D.summary;
 var FOLDERS = D.folders || [];
 
 function trackerChip(key) {
-  return el('span', {'class': 'tk'}, [el('i', {style: 'background:' + (TCOLOR[key] || C.neutral)}), TNAME[key] || key]);
+  var c = TCOLOR[key];
+  // Same look as the status badges: the colour faded behind, full on the dot.
+  return el('span', {'class': 'tk', style: c ? 'background:' + c + '2e' : null}, [el('i', {style: 'background:' + (c || C.neutral)}), TNAME[key] || key]);
 }
 var COVER = {
   everywhere: ['ok', 'Everywhere'], partial: ['info', 'Partial'], none: ['', 'Not seeded']

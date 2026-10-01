@@ -6,7 +6,7 @@
 'use strict';
 
 var DATA = null, CHECKS = {}, OPEN = {}, SELECTED = {}, PROOF = {}, PAGE = 0, STEP = 20;
-var SORT = {key: 'seeds', dir: -1}, F = {q: '', res: '', lang: '', on: '', check: ''};
+var SORT = {key: 'seeds', dir: -1}, F = {q: '', on: {res: {}, lang: {}, seeded: {}, check: {}}};
 var GIB = Math.pow(1024, 3);
 
 function el(tag, attrs, kids) {
@@ -50,7 +50,7 @@ function verdictOf(f) { var c = CHECKS[f.index] || f.check; return c ? c.verdict
 // ---------- status
 function renderStatus() {
   var st = DATA.status || {}, box = clear($('up-status'));
-  $('up-title').textContent = 'Upload to ' + (st.tracker || '?');
+  clear($('up-title')).append('Upload to ', st.tracker ? trackerChip(st.tracker) : '?');
   var access = st.approved === true ? ['ok', 'API access granted'] : st.approved === false ? ['ko', 'API access refused'] : ['warn', 'API access unknown'];
   var fields = Object.keys(st.fields || {}).map(function (k) { return k + ' = ' + st.fields[k]; }).join(' · ');
   box.appendChild(el('div', {'class': 'chips'}, [
@@ -70,31 +70,54 @@ function renderStatus() {
 }
 
 // ---------- filters and list
-function select(key, label, options) {
-  var s = el('select', {'class': 'select', 'aria-label': label, onchange: function () { F[key] = s.value; PAGE = 0; renderRows(); }},
-    options.map(function (o) { return el('option', {value: o[0], text: o[1]}); }));
-  s.value = F[key];
-  return s;
+// Filter chips, as in the library: any chip of a group, every group.
+var MAIN_RES = ['2160p', '1080p', '720p'];
+function groups() {
+  var trackers = {};
+  (DATA.films || []).forEach(function (f) { f.trackers.forEach(function (t) { trackers[t] = true; }); });
+  return [
+    {id: 'res', label: 'Resolution', chips: MAIN_RES.map(function (r) { return [r, r, function (f) { return f.resolution === r; }]; })
+      .concat([['other', 'Other', function (f) { return MAIN_RES.indexOf(f.resolution) < 0; }]])},
+    {id: 'lang', label: 'Language', chips: [['MULTI', 'MULTI'], ['FRENCH', 'FRENCH'], ['VOSTFR', 'VOSTFR'], ['VO', 'No French marker']]
+      .map(function (l) { return [l[0], l[1], function (f) { return f.language === l[0]; }]; })},
+    {id: 'seeded', label: 'Seeded on', chips: [['none', 'Nowhere', function (f) { return !f.trackers.length; }]]
+      .concat(Object.keys(trackers).sort().map(function (t) { return [t, t, function (f) { return f.trackers.indexOf(t) >= 0; }, true]; }))},
+    {id: 'check', label: 'Check', chips: [['none', 'Not checked', ''], ['clear', 'Clear'], ['warn', 'Check it'], ['blocked', 'Already there'], ['incomplete', 'Search failed']]
+      .map(function (c) { var v = c[0] === 'none' ? '' : c[0]; return [c[0], c[1], function (f) { return verdictOf(f) === v; }]; })}
+  ];
+}
+function passes(f, skip) {
+  return groups().every(function (g) {
+    var keys = Object.keys(F.on[g.id]);
+    return g.id === skip || !keys.length || g.chips.some(function (c) { return F.on[g.id][c[0]] && c[2](f); });
+  });
 }
 function renderFilters() {
-  var f = clear($('up-filters'));
-  f.appendChild(select('res', 'Resolution', [['', 'Any resolution'], ['2160p', '2160p'], ['1080p', '1080p'], ['720p', '720p'], ['other', 'Other / unknown']]));
-  f.appendChild(select('lang', 'Language', [['', 'Any language'], ['MULTI', 'MULTI'], ['FRENCH', 'FRENCH'], ['VOSTFR', 'VOSTFR'], ['VO', 'No French marker']]));
-  f.appendChild(select('on', 'Seeded on', [['', 'Seeded anywhere or not'], ['0', 'Seeded nowhere'], ['1', 'On 1+ other tracker'], ['2', 'On 2+ other trackers']]));
-  f.appendChild(select('check', 'Check', [['', 'Any check'], ['none', 'Not checked'], ['clear', 'Clear'], ['warn', 'Check it'], ['blocked', 'Already there'], ['incomplete', 'Search failed']]));
+  var box = clear($('up-filters')), any = Object.keys(F.on).some(function (g) { return Object.keys(F.on[g]).length; });
+  box.style.cssText = 'display:flex;flex-direction:column;gap:8px;margin-bottom:16px';
+  function chip(pressed, kids, onclick) {
+    return el('button', {'class': 'chip', type: 'button', 'aria-pressed': pressed ? 'true' : 'false', onclick: onclick}, [icon('check', 'check')].concat(kids));
+  }
+  box.appendChild(el('div', {'class': 'chips'}, [chip(!any, ['All'], function () { F.on = {res: {}, lang: {}, seeded: {}, check: {}}; PAGE = 0; renderFilters(); renderRows(); })]));
+  groups().forEach(function (g) {
+    var row = el('div', {'class': 'chips', style: 'align-items:center'}, [el('span', {'class': 'muted small', style: 'width:80px', text: g.label})]);
+    g.chips.forEach(function (c) {
+      // Count: the films this chip would show, the other groups' filters applied.
+      var n = (DATA.films || []).filter(function (f) { return matchesQuery(f) && passes(f, g.id) && c[2](f); }).length;
+      row.appendChild(chip(F.on[g.id][c[0]], [c[3] ? trackerChip(c[0]) : c[1], el('span', {'class': 'n', text: String(n)})], function () {
+        if (F.on[g.id][c[0]]) delete F.on[g.id][c[0]]; else F.on[g.id][c[0]] = true;
+        PAGE = 0; renderFilters(); renderRows();
+      }));
+    });
+    box.appendChild(row);
+  });
+}
+function matchesQuery(f) {
+  var q = F.q.toLowerCase();
+  return !q || (f.name + ' ' + f.folder).toLowerCase().indexOf(q) >= 0;
 }
 function shown() {
-  var q = F.q.toLowerCase();
-  var rows = (DATA.films || []).filter(function (f) {
-    if (q && (f.name + ' ' + f.folder).toLowerCase().indexOf(q) < 0) return false;
-    if (F.res === 'other' ? ['2160p', '1080p', '720p'].indexOf(f.resolution) >= 0 : F.res && f.resolution !== F.res) return false;
-    if (F.lang && f.language !== F.lang) return false;
-    if (F.on === '0' && f.trackers.length) return false;
-    if (F.on && F.on !== '0' && f.trackers.length < Number(F.on)) return false;
-    var v = verdictOf(f);
-    if (F.check === 'none' ? v : F.check && v !== F.check) return false;
-    return true;
-  });
+  var rows = (DATA.films || []).filter(function (f) { return matchesQuery(f) && passes(f); });
   var k = SORT.key;
   rows.sort(function (a, b) {
     var x = k === 'trackers' ? a.trackers.length : k === 'check' ? verdictOf(a) : a[k];
@@ -147,7 +170,7 @@ function renderRows() {
       el('td', {}, [box]),
       el('td', {'class': 'name'}, [el('div', {'class': 't', title: f.name, text: f.name}), el('div', {'class': 'faint small', text: f.folder})]),
       el('td', {text: f.resolution || '?'}), el('td', {text: f.language}),
-      el('td', {'class': 'num', text: size(f.size)}), el('td', {'class': 'opt small', text: f.trackers.join(', ') || 'none'}),
+      el('td', {'class': 'num', text: size(f.size)}), el('td', {'class': 'opt'}, f.trackers.length ? [el('div', {'class': 'chips'}, f.trackers.map(trackerChip))] : [el('span', {'class': 'faint small', text: 'none'})]),
       el('td', {'class': 'num', text: String(f.seeds)}), el('td', {'class': 'num opt', text: size(f.uploaded)}),
       el('td', {}, [badge ? el('span', {'class': 'badge ' + badge[0], text: badge[1]}) : el('span', {'class': 'faint small', text: '—'})])
     ]));
@@ -229,7 +252,7 @@ function checkSelected() {
   busy = true;
   var done = 0;
   function next() {
-    if (!todo.length) { busy = false; toast('Checked ' + done + ' film(s).'); renderRows(); return; }
+    if (!todo.length) { busy = false; toast('Checked ' + done + ' film(s).'); renderFilters(); renderRows(); return; }
     var i = todo.shift();
     toast('Checking ' + (done + 1) + ' / ' + (done + todo.length + 1) + ': searching the tracker, TMDB, MediaInfo…');
     api('api/upload', {op: 'check', entry: i}).then(function (r) { CHECKS[i] = r; OPEN[i] = true; }, function (e) {
@@ -276,7 +299,7 @@ function load() {
   });
 }
 
-$('up-q').oninput = function (e) { F.q = e.target.value; PAGE = 0; renderRows(); };
+$('up-q').oninput = function (e) { F.q = e.target.value; PAGE = 0; renderFilters(); renderRows(); };
 $('up-all').onchange = function (e) {
   shown().slice(PAGE * STEP, (PAGE + 1) * STEP).forEach(function (f) { if (e.target.checked) SELECTED[f.index] = true; else delete SELECTED[f.index]; });
   renderRows();

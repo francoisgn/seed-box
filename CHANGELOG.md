@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.0.1
+
+- Tracker chips look like the status badges (the tracker's colour faded
+  behind), in the library and in the Upload section: its title, and the
+  trackers already seeding each film missing there.
+- Films missing there: filter chips as in the library (resolution, language,
+  seeded on each tracker or nowhere, check result, with counts) instead of
+  drop-down menus.
+
 ## 2.0.0
 
 Major: the dashboard becomes several pages, and library management and
