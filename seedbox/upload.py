@@ -39,10 +39,13 @@ import re
 import string
 import threading
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 
-from seedbox import actions, create, match, nfo, titles, tmdb
+from seedbox import actions, create, library, match, nfo, titles, tmdb
+from seedbox import torrentfile as tf
 from seedbox.api import ApiError, multipart, request
+from seedbox.config import unmap_path
 from seedbox.prowlarr import ProwlarrClient, search_indexers
 
 PROBE_TTL_S = 600
@@ -442,15 +445,28 @@ def check(cfg, snapshot, index):
         seen.add(key)
         kind = classify(r, local)
         if kind:
-            matches.append(
-                {
-                    "kind": kind,
-                    "title": r.get("title", ""),
-                    "size": int(r.get("size") or 0),
-                    "seeders": int(r.get("seeders") or 0),
-                    "info_url": r.get("infoUrl") or "",
-                }
-            )
+            found = {
+                "kind": kind,
+                "title": r.get("title", ""),
+                "size": int(r.get("size") or 0),
+                "seeders": int(r.get("seeders") or 0),
+                "info_url": r.get("infoUrl") or "",
+                "candidate": "",
+            }
+            if kind in ("same_size", "same_release") and r.get("downloadUrl"):
+                # The tracker's own torrent: verify and inject it (release matching), or keep it for review.
+                found["candidate"] = uuid.uuid4().hex[:12]
+                match._remember(
+                    match._candidates,
+                    found["candidate"],
+                    {
+                        "entry": int(index),
+                        "url": r["downloadUrl"],
+                        "title": found["title"],
+                        "tracker": cfg.upload_tracker,
+                    },
+                )
+            matches.append(found)
     order = {"same_size": 0, "same_release": 1, "same_resolution": 2, "other": 3}
     matches.sort(key=lambda m: (order[m["kind"]], -m["seeders"]))
     kinds = {m["kind"] for m in matches}
@@ -486,6 +502,73 @@ def check(cfg, snapshot, index):
     with _lock:
         _checks[int(index)] = result
     return result
+
+
+# ---------- review: the tracker's torrent kept for a person (or an assistant) to match by hand
+def _review_dir(cfg):
+    return os.path.join(cfg.output_dir, "review")
+
+
+def keep(cfg, snapshot, cid, reason=""):
+    """Download the tracker's .torrent of a candidate into <output>/review/, with
+    what is known about the local entry beside it (JSON). Returns that record."""
+    with match._lock:
+        cand = match._candidates.get(str(cid))
+    if not cand:
+        raise UploadError("candidate expired: check the film again")
+    entry = match._entry(snapshot, cand["entry"])
+    data = ProwlarrClient(cfg.prowlarr_url, cfg.prowlarr_api_key).download(cand["url"])
+    try:
+        meta = tf.parse(data)
+    except tf.TorrentError as exc:
+        raise UploadError(f"the tracker sent no usable .torrent: {exc}") from exc
+    local = entry["path"]
+    if entry.get("kind") == "file":
+        disk = [{"path": os.path.basename(local), "length": os.path.getsize(local)}]
+    else:
+        disk = [
+            {"path": os.path.relpath(f, local), "length": os.path.getsize(f)}
+            for f in sorted(library._dir_files(cfg, local))
+        ]
+    record = {
+        "saved": time.time(),
+        "tracker": cand["tracker"],
+        "release": cand["title"],
+        "infohash": meta["infohash"],
+        "torrent": {"name": meta["name"], "files": [{"path": f["path"], "length": f["length"]} for f in meta["files"]]},
+        "entry": {
+            "name": entry["name"],
+            "kind": entry.get("kind"),
+            "path": local,
+            "qbittorrent_path": unmap_path(cfg, local),
+            "files": disk,
+        },
+        "reason": re.sub(r"\s+", " ", str(reason or ""))[:500],
+    }
+    folder = _review_dir(cfg)
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    base = os.path.join(folder, meta["infohash"])
+    create._write(base + ".torrent", data)  # owner-only: it holds the passkey
+    create._write(base + ".json", json.dumps(record, ensure_ascii=False, indent=2).encode())
+    return {k: record[k] for k in ("tracker", "release", "infohash", "reason")}
+
+
+def reviews(cfg):
+    """The records waiting in <output>/review/."""
+    out = []
+    try:
+        names = sorted(os.listdir(_review_dir(cfg)))
+    except OSError:
+        return out
+    for name in names:
+        if name.endswith(".json"):
+            try:
+                with open(os.path.join(_review_dir(cfg), name), encoding="utf-8") as handle:
+                    r = json.load(handle)
+                out.append({k: r.get(k) for k in ("tracker", "release", "infohash", "reason", "saved")})
+            except (OSError, ValueError):
+                continue
+    return out
 
 
 # ---------- status and sending
@@ -685,7 +768,8 @@ def _run(cfg, qbt_factory, snapshot, job):
 def handle(cfg, qbt_factory, body):
     """HTTP helper for POST /api/upload: (status code, response dict).
 
-    {"op": "check", "entry": i} | {"op": "send", "entries": [i, ...]}"""
+    {"op": "check", "entry": i} | {"op": "send", "entries": [i, ...]}
+    | {"op": "review", "candidate": id, "reason": text}"""
     try:
         request_ = json.loads(body or b"{}")
         if not isinstance(request_, dict):
@@ -703,7 +787,9 @@ def handle(cfg, qbt_factory, body):
             return 200, check(cfg, snapshot, request_.get("entry"))
         if op == "send":
             return 200, {"jobs": start(cfg, qbt_factory, snapshot, request_.get("entries"))}
-    except (UploadError, create.CreateError, match.MatchError, nfo.NfoError) as exc:
+        if op == "review":
+            return 200, keep(cfg, snapshot, request_.get("candidate"), request_.get("reason"))
+    except (UploadError, create.CreateError, match.MatchError, nfo.NfoError, tf.TorrentError) as exc:
         return 400, {"error": str(exc)}
     except ApiError as exc:
         return 502, {"error": str(exc)}
@@ -724,4 +810,9 @@ def overview(cfg, qbt_factory):
         state = status(cfg, qbt_factory(), snapshot)
     except ApiError as exc:
         state = {"access": str(exc)}
-    return 200, {"status": state, "actions": cfg.actions, "films": candidates(cfg, snapshot)}
+    return 200, {
+        "status": state,
+        "actions": cfg.actions,
+        "films": candidates(cfg, snapshot),
+        "reviews": reviews(cfg),
+    }

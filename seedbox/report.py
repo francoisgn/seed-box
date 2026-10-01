@@ -153,12 +153,11 @@ def write(cfg, snap):
     _atomic_write(os.path.join(out, "snapshot.json"), json.dumps(snap, ensure_ascii=False, indent=1))
 
     history = read_history(os.path.join(out, "history.csv"), delim)
-    _atomic_write(os.path.join(out, "index.html"), dashboard.render(snap, history))
-    return os.path.join(out, "index.html")
+    return dashboard.write_pages(out, snap, history, _atomic_write)
 
 
 def rerender(cfg):
-    """Rebuild index.html from the last snapshot, without collecting: a new
+    """Rebuild the dashboard pages from the last snapshot, without collecting: a new
     version's page right after a deploy. Returns False without a snapshot."""
     out = cfg.output_dir
     try:
@@ -167,5 +166,5 @@ def rerender(cfg):
     except (OSError, ValueError):
         return False
     history = read_history(os.path.join(out, "history.csv"), cfg.csv_delimiter)
-    _atomic_write(os.path.join(out, "index.html"), dashboard.render(snap, history))
+    dashboard.write_pages(out, snap, history, _atomic_write)
     return True

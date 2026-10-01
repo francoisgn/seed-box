@@ -458,10 +458,6 @@ function renderHero() {
   meta.appendChild(el('span', {'class': 'badge ' + (D.actions ? 'info' : ''), text: D.actions ? 'Actions enabled' : 'Read-only'}));
   meta.appendChild(el('span', {'class': 'badge', text: 'Everywhere = ' + S.target_trackers.map(function (k) { return TNAME[k] || k; }).join(', ')}));
   if (!LIVE) meta.appendChild(el('span', {'class': 'badge warn', text: 'Offline copy: live data unavailable'}));
-  // Upload page, when an upload API is configured (asked live: the config may be newer than this page).
-  if (LIVE) fetch('upload', {method: 'HEAD'}).then(function (r) {
-    if (r.ok) meta.appendChild(el('a', {'class': 'badge info', href: 'upload', text: 'Upload page →'}));
-  }, function () {});
 }
 
 // ---------- overview
@@ -481,9 +477,9 @@ function renderOverview() {
 
   renderRatios();
   kpi($('k-problems'), 'Problems', 'warn', S.problems, 'entries', 'Stopped, failed matches, tracker errors, missing extras, redundant uploads, lone films',
-    function () { setFilter('problems'); location.hash = '#library'; });
+    function () { goLibrary('problems'); });
   kpi($('k-dups'), 'Duplicates', 'duplicates', S.duplicates, 'entries', D.duplicates.length + ' groups: same tracker, versions, episodes',
-    function () { location.hash = '#duplicates'; });
+    function () { location.href = 'library.html#duplicates'; });
   renderErrorsTile();
   renderCategoriesTile();
   renderUndeclaredTile();
@@ -491,9 +487,9 @@ function renderOverview() {
   if (sr) {
     kpi($('k-opportunity'), 'Upload opportunities', 'up', sr.opportunity, 'entries',
       'Absent from a tracker cross-seed searched · ' + (sr.other_release || 0) + ' more with only another release there (dupe risk)',
-      function () { setFilter('opportunity'); location.hash = '#library'; });
+      function () { goLibrary('opportunity'); });
     kpi($('k-unsearched'), 'Not searched yet', 'search', sr.unsearched + sr.not_indexed, 'entries',
-      sr.unsearched + ' waiting for cross-seed · ' + sr.not_indexed + ' outside its data folders', function () { setFilter('unsearched'); location.hash = '#library'; });
+      sr.unsearched + ' waiting for cross-seed · ' + sr.not_indexed + ' outside its data folders', function () { goLibrary('unsearched'); });
   } else {
     kpi($('k-opportunity'), 'Upload opportunities', 'up', '—', '', 'cross-seed database not mounted');
     kpi($('k-unsearched'), 'Not searched yet', 'search', '—', '', 'cross-seed database not mounted');
@@ -851,7 +847,7 @@ function checkVersion(running) {
   tag.onclick = function () { location.reload(); };
 }
 function refreshLive() {
-  if (!LIVE) { renderQueueTiles(); renderActivity(); renderErrors(); renderLogs(); return Promise.resolve(); }
+  if (!LIVE) { renderLive(); return Promise.resolve(); }
   $('live-refresh').disabled = true;
   document.querySelectorAll('[data-live]').forEach(function (n) { n.classList.add('stale'); });
   return api('api/status').then(function (st) { L = st; checkVersion(st.seedbox); }).catch(function (e) {
@@ -860,8 +856,14 @@ function refreshLive() {
     document.querySelectorAll('[data-live]').forEach(function (n) { n.classList.remove('stale'); });
     $('live-refresh').disabled = false;
     $('live-time').textContent = L ? 'Updated ' + new Date().toLocaleTimeString() : '';
-    renderQueueTiles(); renderActivity(); renderErrors(); renderLogs();
+    renderLive();
   });
+}
+// Live parts present on this page (Activity is on both pages, the rest on the home page).
+function renderLive() {
+  if ($('k-queue')) renderQueueTiles();
+  renderActivity(); renderErrors();
+  if ($('logs')) renderLogs();
 }
 function setAuto(on) {
   clearInterval(autoTimer);
@@ -899,6 +901,7 @@ function renderSystem() {
   if (!(M.volumes || []).length) vol.appendChild(el('div', {'class': 'foot', text: 'No volume readable.'}));
 }
 function refreshMetrics() {
+  if (!$('m-cpu')) return;
   if (!LIVE) { renderSystem(); clear($('k-volume')).appendChild(el('div', {'class': 'foot', text: 'Live data needs seedbox run.'})); return; }
   api('api/metrics?hours=' + hours).then(function (m) { M = m; renderSystem(); }).catch(function (e) { toast('Metrics failed: ' + e.message); });
 }
@@ -986,6 +989,11 @@ function inGroup(e, gid) {
 }
 function baseMatch(e) {
   return (!folder || e.folder === folder) && (!missing || e.trackers.indexOf(missing) < 0) && (!query || e._k.indexOf(query) >= 0);
+}
+// From the home page's tiles: the library page, filtered.
+function goLibrary(f) {
+  if ($('lib-body')) { setFilter(f); location.hash = '#library'; return; }
+  location.href = 'library.html?filter=' + encodeURIComponent(f) + '#library';
 }
 // From a tile: show only this chip.
 function setFilter(f) {
@@ -1476,19 +1484,20 @@ function collectNow() {
 }
 
 function init() {
-  renderHero();
-  renderOverview();
-  renderDuplicates();
-  buildLibraryControls();
-  renderLibrary();
-  renderOutside();
-  renderWarnings();
-  renderOrphans();
-  renderQueueTiles(); renderActivity(); renderLogs();
+  var home = !!$('overview'), lib = !!$('lib-body');
+  if (home) {
+    renderHero(); renderOverview(); renderOutside(); renderWarnings(); renderOrphans();
+  }
+  if (lib) {
+    renderDuplicates(); buildLibraryControls();
+    var f = new URLSearchParams(location.search).get('filter');
+    if (f && CHIPFN[f]) setFilter(f); else renderLibrary();
+    $('search').addEventListener('input', function (e) {
+      query = e.target.value.toLowerCase(); firstPage('library'); renderLibrary();
+    });
+  }
+  renderLive();
   wireNav();
-  $('search').addEventListener('input', function (e) {
-    query = e.target.value.toLowerCase(); firstPage('library'); renderLibrary();
-  });
   $('live-refresh').onclick = function () { refreshLive(); refreshMetrics(); };
   $('errors-clear').onclick = function () {
     api('api/errors/clear', {}).then(refreshLive, function (e) { toast('Failed: ' + e.message); });
@@ -1504,7 +1513,7 @@ function init() {
     };
   });
   var resize;
-  window.addEventListener('resize', function () { clearTimeout(resize); resize = setTimeout(function () { renderOverview(); renderSystem(); }, 200); });
+  if (home) window.addEventListener('resize', function () { clearTimeout(resize); resize = setTimeout(function () { renderOverview(); renderSystem(); }, 200); });
   refreshLive(); refreshMetrics();
   setAuto(LIVE);
 }

@@ -17,7 +17,6 @@ from seedbox import (
     actions,
     collect,
     create,
-    dashboard,
     match,
     metrics,
     prowlarr,
@@ -192,7 +191,7 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
     POST /api/action   move, recheck, start, skip extras, remove ([service] actions)
     POST /api/match    release matching: search, verify, apply ([service] actions)
     POST /api/create   create a .torrent for a tracker, then seed it ([service] actions)
-    GET  /upload       upload page, when an upload API is configured ([upload])
+    GET  /upload       moved: the Upload section of library.html
     GET  /api/upload   upload API access, settings and the films missing on that tracker
     POST /api/upload   check a film against the tracker, send checked films ([service] actions)
     GET  /api/created  download a created .torrent or its .nfo (?job=id&file=nfo, [service] actions)
@@ -247,29 +246,32 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
             code, result = upload.overview(self.cfg, self._client)
             return self._send(code, result)
         if path in ("/upload", "/upload.html"):
-            return self._upload_page()
-        created = os.path.realpath(os.path.join(self.cfg.output_dir, "created"))
-        served = os.path.realpath(self.translate_path(self.path))
-        if served == created or served.startswith(created + os.sep):
-            # Created .torrent files hold the passkey: only through /api/created.
+            return self._moved()
+        if self._private():
             return self._send(404, {"error": "not found"})
         return super().do_GET()
 
-    def _upload_page(self, head=False):
-        if not self.cfg.upload_enabled:
-            return self._send(404, {"error": "no upload API configured"})
-        data = dashboard.render_upload().encode()
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html; charset=utf-8")
-        self.send_header("Cache-Control", "no-store")
-        self.send_header("Content-Length", str(len(data)))
+    def _moved(self):
+        """The upload page became a section of the library page."""
+        self.send_response(302)
+        self.send_header("Location", "library.html#upload")
+        self.send_header("Content-Length", "0")
         self.end_headers()
-        if not head:
-            self.wfile.write(data)
+
+    def _private(self):
+        """Created and tracker .torrent files hold the passkey: never served as files."""
+        served = os.path.realpath(self.translate_path(self.path))
+        for name in ("created", "review"):
+            folder = os.path.realpath(os.path.join(self.cfg.output_dir, name))
+            if served == folder or served.startswith(folder + os.sep):
+                return True
+        return False
 
     def do_HEAD(self):
         if self.path.partition("?")[0] in ("/upload", "/upload.html"):
-            return self._upload_page(head=True)
+            return self._moved()
+        if self._private():
+            return self._send(404, {"error": "not found"})
         return super().do_HEAD()
 
     def _created(self, job_id, kind):

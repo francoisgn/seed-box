@@ -265,6 +265,31 @@ class Flow(Base):
         )
         self.assertEqual(self.fake_check([], tmdb_found=())[0]["verdict"], "warn")  # TMDB knows no such film
 
+    def test_keep_the_trackers_torrent_for_review(self):
+        same = {
+            "title": "Some.Film.2019.MULTi.1080p.BluRay.x264-GRP.FRENCH",
+            "size": SIZE,
+            "downloadUrl": "http://p/dl/1",
+        }
+        result, _ = self.fake_check([same])
+        cid = result["matches"][0]["candidate"]
+        self.assertTrue(cid)
+        files = [{"length": SIZE, "path": [FILM]}, {"length": 10, "path": ["film.nfo"]}]
+        info = {"name": "Some.Film", "piece length": 16, "pieces": b"x" * 20, "files": files, "private": 1}
+        data = tf.encode({"announce": ANNOUNCE, "info": info})
+        with mock.patch.object(upload.ProwlarrClient, "download", return_value=data):
+            kept = upload.keep(self.cfg, self.snapshot, cid, "verify: no file of this size")
+        base = os.path.join(self.cfg.output_dir, "review", kept["infohash"])
+        self.assertEqual(os.stat(base + ".torrent").st_mode & 0o777, 0o600)
+        with open(base + ".json", encoding="utf-8") as handle:
+            record = json.load(handle)
+        self.assertEqual(record["entry"]["files"], [{"path": FILM, "length": SIZE}])
+        self.assertEqual(len(record["torrent"]["files"]), 2)
+        self.assertNotIn(PASSKEY, json.dumps(record))
+        self.assertEqual(upload.reviews(self.cfg)[0]["reason"], "verify: no file of this size")
+        with self.assertRaises(upload.UploadError):
+            upload.keep(self.cfg, self.snapshot, "expired", "")
+
     def test_sending_is_gated(self):
         with self.assertRaisesRegex(upload.UploadError, "send = false"):
             upload.start(self.cfg, FakeQbt, self.snapshot, [0])
@@ -326,7 +351,9 @@ class Page(Base):
     def setUp(self):
         super().setUp()
         handler = type("H", (cli._Handler,), {"cfg": self.cfg, "service": cli._Service(self.cfg)})
-        self.web = http.server.ThreadingHTTPServer(("127.0.0.1", 0), lambda *a: handler(*a, directory=self.tmp.name))
+        os.makedirs(self.cfg.output_dir, exist_ok=True)
+        served = self.cfg.output_dir  # as `seedbox run` serves it
+        self.web = http.server.ThreadingHTTPServer(("127.0.0.1", 0), lambda *a: handler(*a, directory=served))
         threading.Thread(target=self.web.serve_forever, daemon=True).start()
 
     def tearDown(self):
@@ -340,14 +367,12 @@ class Page(Base):
         resp = conn.getresponse()
         return resp.status, resp.read()
 
-    def test_page_only_when_configured(self):
-        status, body = self.call("GET", "/upload")
-        self.assertEqual(status, 200)
-        self.assertIn(b"Films missing there", body)
-        self.assertEqual(self.call("HEAD", "/upload")[0], 200)
-        self.cfg.upload_api = ""
-        self.assertEqual(self.call("GET", "/upload")[0], 404)
-        self.assertEqual(self.call("HEAD", "/upload")[0], 404)
+    def test_api_only_when_configured(self):
+        self.assertEqual(self.call("GET", "/upload")[0], 302)  # now a section of library.html
+        write(os.path.join(self.cfg.output_dir, "review", "x.torrent"), b"d8:announce6:secrete")
+        for method in ("GET", "HEAD"):
+            self.assertEqual(self.call(method, "/review/x.torrent")[0], 404)
+        self.cfg.upload_api = {}
         self.assertEqual(self.call("GET", "/api/upload")[0], 404)
 
 

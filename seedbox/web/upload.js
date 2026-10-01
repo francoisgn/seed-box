@@ -1,10 +1,11 @@
-'use strict';
-// Upload page: films of the library missing on the tracker of [upload], from
+// Upload section of the library page: films of the library missing on the tracker of [upload], from
 // /api/upload. Check asks the server to search the tracker (Prowlarr), TMDB
 // and MediaInfo; Send queues uploads of checked films. Every text from the
-// data is inserted with textContent.
+// data is inserted with textContent. Its own scope: app.js runs on the same page.
+(function () {
+'use strict';
 
-var DATA = null, CHECKS = {}, OPEN = {}, SELECTED = {}, PAGE = 0, STEP = 20;
+var DATA = null, CHECKS = {}, OPEN = {}, SELECTED = {}, PROOF = {}, PAGE = 0, STEP = 20;
 var SORT = {key: 'seeds', dir: -1}, F = {q: '', res: '', lang: '', on: '', check: ''};
 var GIB = Math.pow(1024, 3);
 
@@ -48,8 +49,8 @@ function verdictOf(f) { var c = CHECKS[f.index] || f.check; return c ? c.verdict
 
 // ---------- status
 function renderStatus() {
-  var st = DATA.status || {}, box = clear($('status'));
-  $('title').textContent = 'Upload to ' + (st.tracker || '?');
+  var st = DATA.status || {}, box = clear($('up-status'));
+  $('up-title').textContent = 'Upload to ' + (st.tracker || '?');
   var access = st.approved === true ? ['ok', 'API access granted'] : st.approved === false ? ['ko', 'API access refused'] : ['warn', 'API access unknown'];
   var fields = Object.keys(st.fields || {}).map(function (k) { return k + ' = ' + st.fields[k]; }).join(' · ');
   box.appendChild(el('div', {'class': 'chips'}, [
@@ -76,7 +77,7 @@ function select(key, label, options) {
   return s;
 }
 function renderFilters() {
-  var f = clear($('filters'));
+  var f = clear($('up-filters'));
   f.appendChild(select('res', 'Resolution', [['', 'Any resolution'], ['2160p', '2160p'], ['1080p', '1080p'], ['720p', '720p'], ['other', 'Other / unknown']]));
   f.appendChild(select('lang', 'Language', [['', 'Any language'], ['MULTI', 'MULTI'], ['FRENCH', 'FRENCH'], ['VOSTFR', 'VOSTFR'], ['VO', 'No French marker']]));
   f.appendChild(select('on', 'Seeded on', [['', 'Seeded anywhere or not'], ['0', 'Seeded nowhere'], ['1', 'On 1+ other tracker'], ['2', 'On 2+ other trackers']]));
@@ -124,16 +125,17 @@ function detail(f) {
       var k = KIND[m.kind];
       tb.appendChild(el('tr', {}, [el('td', {}, [el('span', {'class': 'badge ' + k[0], text: k[1]})]),
         el('td', {}, [m.info_url ? el('a', {href: m.info_url, target: '_blank', rel: 'noopener', text: m.title}) : m.title]),
-        el('td', {'class': 'num', text: size(m.size)}), el('td', {'class': 'num', text: String(m.seeders)})]));
+        el('td', {'class': 'num', text: size(m.size)}), el('td', {'class': 'num', text: String(m.seeders)}),
+        el('td', {}, [m.candidate && DATA.actions ? proofButtons(f, m) : null])]));
     });
     box.appendChild(el('table', {'class': 'dense subtable'}, [tb]));
   } else box.appendChild(el('div', {text: 'Nothing of this film found on the tracker.'}));
   return box;
 }
 function renderRows() {
-  var rows = shown(), body = clear($('rows')), n = Math.max(Math.ceil(rows.length / STEP), 1);
+  var rows = shown(), body = clear($('up-rows')), n = Math.max(Math.ceil(rows.length / STEP), 1);
   PAGE = Math.min(PAGE, n - 1);
-  $('count').textContent = rows.length + ' shown of ' + (DATA.films || []).length;
+  $('up-count').textContent = rows.length + ' shown of ' + (DATA.films || []).length;
   rows.slice(PAGE * STEP, (PAGE + 1) * STEP).forEach(function (f) {
     var v = verdictOf(f), badge = VERDICT[v];
     var box = el('input', {type: 'checkbox', 'aria-label': 'Select', onclick: function (ev) { ev.stopPropagation(); }, onchange: function () {
@@ -151,7 +153,7 @@ function renderRows() {
     ]));
     if (OPEN[f.index]) body.appendChild(el('tr', {}, [el('td', {}), el('td', {colspan: '8'}, [detail(f)])]));
   });
-  var more = clear($('more'));
+  var more = clear($('up-more'));
   if (n > 1) {
     more.appendChild(el('button', {'class': 'chip', type: 'button', disabled: PAGE === 0 ? true : null, onclick: function () { PAGE--; renderRows(); }}, ['‹']));
     more.appendChild(el('span', {'class': 'faint small', text: 'Page ' + (PAGE + 1) + ' of ' + n}));
@@ -162,12 +164,61 @@ function renderRows() {
 function selection() { return Object.keys(SELECTED).map(Number); }
 function renderBatch() {
   var sel = selection(), st = DATA.status || {};
-  $('batch').classList.toggle('show', sel.length > 0);
-  $('batch-count').textContent = sel.length + ' selected';
+  $('up-batch').classList.toggle('show', sel.length > 0);
+  $('up-batch-count').textContent = sel.length + ' selected';
   var ready = st.send && st.approved !== false && DATA.actions;
-  $('send').disabled = !ready;
-  $('send').title = ready ? 'Upload the checked films, one at a time' : 'Sending needs API access and [upload] send = true';
-  $('check').disabled = !DATA.actions;
+  $('up-send').disabled = !ready;
+  $('up-send').title = ready ? 'Upload the checked films, one at a time' : 'Sending needs API access and [upload] send = true';
+  $('up-check').disabled = !DATA.actions;
+}
+
+// ---------- the tracker already has it: seed its torrent instead (verify + inject), or keep it for review
+function proofButtons(f, m) {
+  var p = PROOF[m.candidate], box = el('div', {'class': 'chips', onclick: function (ev) { ev.stopPropagation(); }});
+  function redo() { renderRows(); }
+  if (p === 'busy') return el('span', {'class': 'faint small', text: 'working…'});
+  if (!p) {
+    box.appendChild(el('button', {'class': 'btn sm', type: 'button', title: 'Fetch its .torrent and hash pieces of the local file against it',
+      onclick: function () {
+        PROOF[m.candidate] = 'busy'; redo();
+        api('api/match', {op: 'verify', candidate: m.candidate}).then(function (r) { PROOF[m.candidate] = r; },
+          function (e) { PROOF[m.candidate] = {verified: false, reason: e.message}; }).then(redo);
+      }}, ['Verify']));
+  } else if (p.kept) {
+    box.appendChild(el('span', {'class': 'badge', text: 'kept for review'}));
+  } else if (p.verified) {
+    box.appendChild(el('span', {'class': 'badge ok', text: 'same bytes'}));
+    if (p.in_qbt) box.appendChild(el('span', {'class': 'badge', text: 'already in qBittorrent'}));
+    else box.appendChild(el('button', {'class': 'btn sm filled', type: 'button', title: 'Add it to qBittorrent on the library file, started once the recheck says 100 %',
+      onclick: function () {
+        api('api/match', {op: 'apply', infohash: p.infohash, mode: 'inject'}).then(function () {
+          p.in_qbt = true; toast('Inject started: follow it in the dashboard, Activity, jobs.'); redo();
+        }, function (e) { toast('Failed: ' + e.message); });
+      }}, ['Inject']));
+  } else {
+    box.appendChild(el('span', {'class': 'badge warn', text: p.reason || 'not the same bytes'}));
+  }
+  if (p !== 'busy' && !(p && (p.verified || p.kept))) {
+    box.appendChild(el('button', {'class': 'btn sm', type: 'button', title: 'Save the tracker\'s .torrent and what is known of the local file, to be matched by hand',
+      onclick: function () {
+        var reason = p && p.reason ? 'verify: ' + p.reason : 'not verified';
+        api('api/upload', {op: 'review', candidate: m.candidate, reason: reason}).then(function () {
+          PROOF[m.candidate] = {kept: true}; toast('Kept in review/: ask for it to be matched.'); load();
+        }, function (e) { toast('Failed: ' + e.message); });
+      }}, ['Keep for review']));
+  }
+  return box;
+}
+function renderReviews() {
+  var list = DATA.reviews || [], box = $('up-reviews');
+  clear(box);
+  if (!list.length) { box.appendChild(el('p', {'class': 'empty', text: 'Nothing waiting.'})); return; }
+  var tb = el('tbody');
+  list.forEach(function (r) {
+    tb.appendChild(el('tr', {}, [el('td', {'class': 'name'}, [el('div', {'class': 't', title: r.release, text: r.release})]),
+      el('td', {text: r.tracker}), el('td', {'class': 'small muted', text: r.reason || ''})]));
+  });
+  box.appendChild(el('div', {'class': 'table-wrap'}, [el('table', {'class': 'dense'}, [tb])]));
 }
 
 // ---------- check and send
@@ -215,25 +266,31 @@ function sendSelected() {
 function load() {
   return api('api/upload').then(function (r) {
     DATA = r;
+    $('upload').hidden = false;
+    if ($('nav-upload')) $('nav-upload').hidden = false;
     (r.films || []).forEach(function (f) { if (f.check && !CHECKS[f.index]) CHECKS[f.index] = f.check; });
-    renderStatus(); renderFilters(); renderRows();
-  }, function (e) { clear($('status')).appendChild(el('p', {'class': 'empty', text: 'Unavailable: ' + e.message})); });
+    renderStatus(); renderFilters(); renderRows(); renderReviews();
+  }, function (e) {
+    // No upload API configured (404): the section stays hidden.
+    if (!/no upload API/.test(e.message)) { $('upload').hidden = false; clear($('up-status')).appendChild(el('p', {'class': 'empty', text: 'Unavailable: ' + e.message})); }
+  });
 }
 
-$('q').oninput = function (e) { F.q = e.target.value; PAGE = 0; renderRows(); };
-$('all').onchange = function (e) {
+$('up-q').oninput = function (e) { F.q = e.target.value; PAGE = 0; renderRows(); };
+$('up-all').onchange = function (e) {
   shown().slice(PAGE * STEP, (PAGE + 1) * STEP).forEach(function (f) { if (e.target.checked) SELECTED[f.index] = true; else delete SELECTED[f.index]; });
   renderRows();
 };
-document.querySelectorAll('th[data-sort]').forEach(function (th) {
+document.querySelectorAll('th[data-up-sort]').forEach(function (th) {
   th.onclick = function () {
-    var k = th.getAttribute('data-sort');
+    var k = th.getAttribute('data-up-sort');
     SORT = {key: k, dir: SORT.key === k ? -SORT.dir : (k === 'name' || k === 'language' ? 1 : -1)};
     renderRows();
   };
 });
-$('check').onclick = checkSelected;
-$('send').onclick = sendSelected;
-$('clear').onclick = function () { SELECTED = {}; renderRows(); };
-$('reload').onclick = load;
+$('up-check').onclick = checkSelected;
+$('up-send').onclick = sendSelected;
+$('up-clear').onclick = function () { SELECTED = {}; renderRows(); };
+$('live-refresh').addEventListener('click', load);
 load();
+})();

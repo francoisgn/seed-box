@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.9.0
+
+- Two pages: the control plane's home (warnings, overview, system,
+  activity, logs) and `library.html` (library, duplicates, activity,
+  upload). The home page's tiles open the library page with their filter;
+  `/upload` now leads to the Upload section of the library page.
+- Upload check: a release the tracker already has can be verified against the
+  local file and injected (release matching), or its `.torrent` kept in
+  `<output>/review/` with what is known of the local entry (JSON), to be
+  matched by hand. Those files, like created ones, are never served.
+
 ## 1.8.0
 
 - Upload page for a tracker with an upload API, described in the config

@@ -147,8 +147,8 @@ delete them from the jobs list once uploaded.
 ### Upload API
 
 A tracker with an upload API (`.torrent` and `.nfo` sent over HTTPS, the
-release page built by the tracker) gets an **Upload page** next to the
-dashboard once `[upload]` names it. seedbox knows no tracker: `[upload.api]`
+release page built by the tracker) gets an **Upload** section on the library
+page once `[upload]` names it. seedbox knows no tracker: `[upload.api]`
 describes that tracker's API as its documentation does (paths, headers, form
 fields, answer codes, limits; see [`seedbox.example.toml`](seedbox.example.toml)),
 with placeholders such as `{tmdb_id}` or `{year}` for values taken from the
@@ -164,6 +164,10 @@ steps:
     not have blocks it (a name says what the file holds); spaces, a missing
     year or resolution are pointed out;
   - TMDB: the film the tracker should identify from the name, with its link.
+  - A release the tracker already has: **Verify** it against the local file
+    and **Inject** it (release matching), or **Keep for review**: its
+    `.torrent` goes to `<output>/review/` with a JSON of the local entry
+    (paths, files on disk, files in the torrent), to be matched by hand.
 - **Send**, checked films only, one at a time: the `.torrent` and `.nfo` are
   created as above, sent, and on acceptance the same torrent is seeded from the
   library file. Answers marked for review stop there and are never retried;

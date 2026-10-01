@@ -351,8 +351,23 @@ class Pipeline(unittest.TestCase):
             page = handle.read()
         self.assertNotIn("</script><b>", page)
         # Every placeholder filled, the rest of the page intact.
-        self.assertEqual(re.findall(r"@(favicon|css|flag|nav|check|logo|range|version|data|history|js)@", page), [])
+        placeholders = r"@(title|page|crumb|favicon|css|flag|nav|check|logo|range|version|data|history|js|upjs)@"
+        self.assertEqual(re.findall(placeholders, page), [])
         self.assertIn('<nav class="rail"', page)
+        # Two pages: the home page, and the library page (Activity on both).
+        with open(os.path.join(out, "library.html"), encoding="utf-8") as handle:
+            library = handle.read()
+        self.assertEqual(re.findall(placeholders, library), [])
+        for section in ("attention", "overview", "system", "logs-sec"):
+            self.assertIn(f'<section id="{section}">', page)
+            self.assertNotIn(f'<section id="{section}">', library)
+        for section in ("library", "duplicates"):
+            self.assertIn(f'<section id="{section}">', library)
+            self.assertNotIn(f'<section id="{section}">', page)
+        self.assertIn('<section id="activity">', page)
+        self.assertIn('<section id="activity">', library)
+        self.assertIn('<section id="upload" hidden>', library)
+        self.assertIn('href="library.html"', page)
         self.assertIn("family=Inconsolata:wght@400", page)
         self.assertNotIn("/secret/path", page)
         with open(os.path.join(out, "snapshot.json"), encoding="utf-8") as handle:
