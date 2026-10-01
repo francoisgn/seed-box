@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.0.0
+
+Major: the dashboard becomes several pages, and library management and
+advanced cross-seeding get a page of their own.
+
+- **Home page** (`index.html`), the control plane: warnings, overview,
+  system, qBittorrent activity, logs.
+- **Library page** (`library.html`), the library management plane: library,
+  duplicates, a lighter activity (errors, jobs, busy torrents), and the
+  Upload section (1.8.0, 1.9.0): films missing on a tracker with an upload
+  API, checks, upload, verify and inject a release the tracker already has,
+  or keep its `.torrent` for review.
+- Navigation: the rail lists the page's sections, then, after a separator,
+  the other page (Library page / Back Home); the rail and the top bar stay in
+  place while the content cross-fades, both ways (View Transitions, recent
+  Chrome and Safari). The home page's tiles open the library page filtered.
+- Library page header: Clawd reading in front of a bookcase, "Library
+  Management plane".
+- Light UX rework:
+  - status colours on the gauges (library shared: under 20 % error, 50 %
+    warning, 66 % info, then ok; volume usage: under 50 % ok, 75 % info,
+    90 % warning, then error) and on the tracker ratios (under 0.5 error,
+    1 warning, 2 info, then ok);
+  - coverage by tracker in shades of one blue;
+  - torrents added per day: cross-seed in blue, other additions (downloads,
+    own uploads) in green;
+  - system charts: CPU with a filled area, busiest disk in orange like IO
+    wait, qBittorrent upload (blue) and download (green) with filled areas;
+    thinner lines.
+
 ## 1.9.0
 
 - Two pages: the control plane's home (warnings, overview, system,

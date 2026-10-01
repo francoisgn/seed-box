@@ -32,14 +32,15 @@ NAV = [
 # Two pages from the same data: the control plane's home, and the library page
 # (entries, duplicates, upload). Activity is on both: what qBittorrent is busy with.
 PAGES = {
-    "home": {"file": "index.html", "title": "Seedbox control plane",
+    "home": {"file": "index.html", "title": "Seedbox control plane", "logo": "logo.svg",
              "sections": ["attention", "overview", "system", "activity", "logs-sec"]},
-    "library": {"file": "library.html", "title": "Seedbox library",
+    "library": {"file": "library.html", "title": "Library Management plane", "logo": "library.svg",
                 "sections": ["library", "duplicates", "activity", "upload"]},
 }  # fmt: skip
+# Below the page's own sections, after a separator: the other pages.
 OTHER = {
-    "home": ("library.html", "Library page", "M3 7h14v13H3zM7 3h14v13M8 11v5l4-2.5z"),
-    "library": ("./", "Home", "M4 11l8-7 8 7M6 10v10h12V10"),
+    "home": [("library.html", "Library page", "M3 7h14v13H3zM7 3h14v13M8 11v5l4-2.5z")],
+    "library": [("./", "Back Home", "M15 6l-6 6 6 6")],
 }
 # Auto refresh period, shown on its button (the page script uses the same value).
 AUTO_REFRESH_S = 90
@@ -66,8 +67,8 @@ def _nav(page):
         links.append(
             _link(f"#{key}", label, path, key == sections[0], ' hidden id="nav-upload"' if key == "upload" else "")
         )
-    href, label, path = OTHER[page]
-    links.append('<span class="rail-gap"></span>' + _link(href, label, path))
+    links.append('<hr class="rail-sep">')
+    links += [_link(href, label, path) for href, label, path in OTHER[page]]
     return "\n  ".join(links)
 
 
@@ -103,7 +104,7 @@ TOPBAR = """<header class="topbar">
 
 HERO = """<div class="hero">
   @logo@
-  <div><h1>Seedbox control plane</h1><p id="hero-sub"></p><div class="meta" id="hero-meta"></div></div>
+  <div><h1>@heading@</h1><p id="hero-sub"></p><div class="meta" id="hero-meta"></div></div>
 </div>"""
 
 SECTIONS = {
@@ -253,6 +254,14 @@ def _embed(value):
     return json.dumps(value, ensure_ascii=False, separators=(",", ":")).replace("<", "\\u003c")
 
 
+def _section(key, page):
+    html = SECTIONS[key]
+    if key == "activity" and page != "home":
+        # Disk I/O and transfer belong to the home page; the library page keeps errors, jobs, busy torrents.
+        html = re.sub(r'\n    <div class="card kpi c6" id="a-(io|transfer)" data-live></div>', "", html)
+    return html
+
+
 def render(snap, history, page="home"):
     spec = PAGES[page]
     data = {k: v for k, v in snap.items() if k != "entries"}
@@ -264,13 +273,15 @@ def render(snap, history, page="home"):
         + '<nav class="rail" aria-label="Sections">\n  <div class="flag">@flag@</div>\n  @nav@\n</nav>\n\n'
         + TOPBAR
         + "\n\n<main>\n"
-        + (HERO + "\n\n" if page == "home" else "")
-        + "\n\n".join(SECTIONS[k] for k in spec["sections"])
+        + HERO
+        + "\n\n"
+        + "\n\n".join(_section(k, page) for k in spec["sections"])
         + "\n</main>\n\n"
         + TAIL
     )
     parts = {
         "title": spec["title"],
+        "heading": spec["title"],
         "page": page,
         "crumb": next(label for key, label, _ in NAV if key == first),
         "favicon": base64.b64encode(flag.encode()).decode(),
@@ -278,7 +289,7 @@ def render(snap, history, page="home"):
         "flag": flag,
         "nav": _nav(page),
         "check": CHECK,
-        "logo": _asset("logo.svg").strip(),
+        "logo": _asset(spec["logo"]).strip(),
         "range": _range_chips(),
         "auto": f"{AUTO_REFRESH_S // 60} min" if AUTO_REFRESH_S % 60 == 0 else f"{AUTO_REFRESH_S} s",
         "autos": str(AUTO_REFRESH_S),

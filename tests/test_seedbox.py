@@ -368,6 +368,16 @@ class Pipeline(unittest.TestCase):
         self.assertIn('<section id="activity">', library)
         self.assertIn('<section id="upload" hidden>', library)
         self.assertIn('href="library.html"', page)
+        # Rail: the page's sections, a separator, then the other page; each page its own header.
+        self.assertLess(page.index('href="#logs-sec"'), page.index('class="rail-sep"'))
+        self.assertLess(page.index('class="rail-sep"'), page.index('href="library.html"'))
+        self.assertIn(">Back Home</a>", library)
+        self.assertIn("<h1>Library Management plane</h1>", library)
+        self.assertIn("<h1>Seedbox control plane</h1>", page)
+        # Disk I/O and transfer tiles on the home page only.
+        self.assertIn('id="a-io"', page)
+        self.assertNotIn('id="a-io"', library)
+        self.assertNotIn('id="a-transfer"', library)
         self.assertIn("family=Inconsolata:wght@400", page)
         self.assertNotIn("/secret/path", page)
         with open(os.path.join(out, "snapshot.json"), encoding="utf-8") as handle:

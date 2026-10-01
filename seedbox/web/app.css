@@ -48,7 +48,12 @@ a { color: var(--primary); }
   display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px 0;
 }
 .rail .flag { width: 40px; height: 40px; margin-bottom: 16px; }
-.rail .rail-gap { flex: 1; }
+.rail .rail-sep { width: 48px; border: 0; border-top: 1px solid var(--line); margin: 4px 0; }
+/* Between the two pages: the rail and the top bar stay, the rest cross-fades (both ways). */
+@view-transition { navigation: auto; }
+.rail { view-transition-name: rail; }
+.topbar { view-transition-name: topbar; }
+::view-transition-old(root), ::view-transition-new(root) { animation-duration: 220ms; }
 [hidden] { display: none !important; }
 .rail a {
   display: flex; flex-direction: column; align-items: center; gap: 4px; width: 72px;

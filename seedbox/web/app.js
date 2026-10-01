@@ -10,6 +10,13 @@ var GIB = Math.pow(1024, 3), TIB = Math.pow(1024, 4);
 // Categorical dark steps, fixed order; a tracker keeps its slot whatever the filters.
 var SLOTS = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#9085e9', '#e66767', '#008300'];
 var C = {ok: '#81c995', warn: '#fde293', ko: '#f28b82', primary: '#8ab4f8', neutral: 'rgba(255,255,255,0.38)'};
+// Status colour of a value against thresholds, worst first: [[limit, colour], ...], else the last colour.
+function level(v, steps, last) { for (var i = 0; i < steps.length; i++) if (v < steps[i][0]) return steps[i][1]; return last; }
+function sharedColor(p) { return level(p, [[20, C.ko], [50, C.warn], [66, C.primary]], C.ok); }
+function volumeColor(p) { return level(p, [[50, C.ok], [75, C.primary], [90, C.warn]], C.ko); }
+function ratioColor(r) { return level(r, [[0.5, C.ko], [1, C.warn], [2, C.primary]], C.ok); }
+// Trackers in one chart: shades of one blue, darkest for the biggest.
+var BLUES = ['#1f5fae', '#3987e5', '#5c9ded', '#80b3f2', '#a3c9f6', '#c6def9'];
 
 // ---------- helpers
 function el(tag, attrs, kids) {
@@ -292,7 +299,7 @@ function lineChart(box, o) {
       svg.appendChild(sv('polygon', {points: fix(X(o.xs[0]), 1) + ',' + Y(0) + ' ' + pts.join(' ') + ' ' + fix(X(x1), 1) + ',' + Y(0),
         fill: s.color, opacity: 0.16}));
     }
-    svg.appendChild(sv('polyline', {points: pts.join(' '), fill: 'none', stroke: s.color, 'stroke-width': 2,
+    svg.appendChild(sv('polyline', {points: pts.join(' '), fill: 'none', stroke: s.color, 'stroke-width': 1.5,
       'stroke-linejoin': 'round', 'stroke-linecap': 'round', 'stroke-dasharray': s.dash || null}));
   });
   var xh = sv('line', {'class': 'xhair', y1: m.t, y2: m.t + ih, visibility: 'hidden'});
@@ -450,6 +457,15 @@ function fixButton(fix, issue, entry) {
 }
 
 // ---------- hero and top bar
+// Library page header: what the library holds and what can be done with it.
+function renderLibraryHero() {
+  var sr = D.search || {};
+  $('hero-sub').textContent = S.entries + ' entries · ' + bytes(S.size) + ' on disk · ' + S.duplicates + ' in duplicates · collected ' + when(D.generated);
+  var meta = $('hero-meta'); clear(meta);
+  if (D.search) meta.appendChild(el('span', {'class': 'badge info', text: sr.opportunity + ' upload opportunities'}));
+  meta.appendChild(el('span', {'class': 'badge ' + (S.problems ? 'warn' : 'ok'), text: S.problems + ' with problems'}));
+  meta.appendChild(el('span', {'class': 'badge ' + (D.actions ? 'info' : ''), text: D.actions ? 'Actions enabled' : 'Read-only'}));
+}
 function renderHero() {
   $('hero-sub').textContent = S.entries + ' entries · ' + bytes(S.size) + ' on disk · ' + S.torrents + ' torrents (' +
     S.cross_seed_torrents + ' cross-seed) · collected ' + when(D.generated) + ' in ' + fix(D.duration_s, 0) + ' s';
@@ -471,7 +487,7 @@ function kpi(box, label, iconName, value, unit, foot, onclick) {
 function renderOverview() {
   var cov = $('k-coverage'); clear(cov);
   cov.appendChild(el('div', {'class': 'label'}, [icon('library', 'sm'), 'Library shared']));
-  var g = el('div'); gauge(g, S.coverage_pct, 'Coverage', C.ok);
+  var g = el('div'); gauge(g, S.coverage_pct, 'Coverage', sharedColor(S.coverage_pct));
   cov.appendChild(el('div', {'class': 'gauge-wrap'}, [g, el('div', {'class': 'value', text: pct(S.coverage_pct)})]));
   cov.appendChild(el('div', {'class': 'foot', text: S.everywhere + ' everywhere · ' + S.partial + ' partial · ' + S.none + ' not seeded'}));
 
@@ -519,9 +535,10 @@ function renderOverview() {
     {label: 'On disk, not seeded', value: parts.none, color: C.neutral}
   ], pct(S.coverage_pct), 'shared');
 
+  var byCount = D.trackers.slice().sort(function (a, b) { return b.entries - a.entries; }).map(function (t) { return t.key; });
   hbars($('c-trackers'), D.trackers.map(function (t) {
     var st = !t.in_prowlarr ? 'not in Prowlarr' : !t.enabled ? 'disabled' : t.failing ? 'failing' : 'ok';
-    return {label: t.name, value: t.entries, color: TCOLOR[t.key], tip: [
+    return {label: t.name, value: t.entries, color: BLUES[Math.min(byCount.indexOf(t.key), BLUES.length - 1)], tip: [
       {value: String(t.entries), label: 'entries'}, {value: bytes(t.size), label: 'shared'},
       {value: bytes(t.uploaded), label: 'uploaded'}, {value: st, label: ''}]};
   }), S.entries);
@@ -549,7 +566,7 @@ function renderOverview() {
   stackedBars($('c-added'), {
     labels: added.map(function (a) { return a.date; }), label: 'Torrents added per day',
     series: [{name: 'Cross-seed', color: SLOTS[0], values: added.map(function (a) { return a.cross_seed; })},
-             {name: 'Other', color: SLOTS[1], values: added.map(function (a) { return a.other; })}],
+             {name: 'Other (downloads, own uploads)', color: SLOTS[2], values: added.map(function (a) { return a.other; })}],
     xFmt: function (d) { return new Date(d).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}); },
     tipFmt: function (d) { return new Date(d).toLocaleDateString(); }
   });
@@ -590,6 +607,7 @@ function renderRatios() {
     }).filter(Boolean);
     kpi(box, r.key === 'other' ? 'Ratio, other trackers' : 'Ratio ' + (TNAME[r.key] || r.name), 'up', ratio, '',
       '↑ ' + bytes(r.up) + ' · ↓ ' + bytes(r.down) + ' · ' + r.torrents + ' torrents' + (win.length ? '\n' + win.join(' · ') : ''));
+    if (r.up || r.down) box.querySelector('.value').style.color = r.down ? ratioColor(r.up / r.down) : C.ok;
     box.title = r.down ? '' : 'Nothing downloaded on this tracker by the torrents in qBittorrent (cross-seeded): the ratio the tracker shows also counts past downloads.';
     if (r.key !== 'other' && TCOLOR[r.key]) box.querySelector('.label').prepend(el('i', {'class': 'dot', style: 'background:' + TCOLOR[r.key]}));
   });
@@ -706,8 +724,9 @@ function renderQueueTiles() {
       el('span', {'class': 'name', title: b.name, text: b.name}), el('span', {'class': 'faint small', text: bytes(b.size)})]);
   }));
 }
-function renderActivity() {
-  var io = $('a-io'), tr = $('a-transfer'), busy = $('a-busy');
+// Disk I/O and transfer tiles: home page only.
+function renderIoTiles() {
+  var io = $('a-io'), tr = $('a-transfer');
   if (!L) {
     [io, tr].forEach(function (b) { kpi(b, b === io ? 'qBittorrent disk I/O' : 'Transfer', b === io ? 'disk' : 'activity', '—', '', LIVE ? 'Loading…' : 'Live data needs seedbox run'); });
     return;
@@ -724,7 +743,11 @@ function renderActivity() {
         : '↑ ' + rate(s.up) + ' · ↓ ' + rate(s.dl)})]);
   }, 'Torrents using the disk'));
   kpi(tr, 'Transfer', 'activity', rate(L.io.up_speed), 'up', 'Down ' + rate(L.io.dl_speed) + ' · ' + L.io.peers + ' peers · qBittorrent ' + L.version);
-
+}
+function renderActivity() {
+  var busy = $('a-busy');
+  if ($('a-io')) renderIoTiles();
+  if (!L) return;
   clear(busy);
   if (!L.busy.length) busy.appendChild(el('p', {'class': 'empty', text: 'Nothing moving, checking or in error.'}));
   else {
@@ -882,19 +905,19 @@ function renderSystem() {
   var tf = function (x) { var d = new Date(x); return hours > 48 ? d.toLocaleDateString(undefined, {day: 'numeric', month: 'short'}) : d.toLocaleTimeString(undefined, {hour: '2-digit', minute: '2-digit'}); };
   var tt = function (x) { return new Date(x).toLocaleString(); };
   var empty = 'Samples appear every ' + Math.round((M.interval || 300) / 60) + ' min once seedbox run is up.';
-  lineChart($('m-cpu'), {xs: xs, series: [{name: 'CPU', color: SLOTS[0], values: col('cpu_pct')}, {name: 'IO wait', color: SLOTS[1], values: col('iowait_pct')}],
+  lineChart($('m-cpu'), {xs: xs, series: [{name: 'CPU', color: SLOTS[0], area: true, values: col('cpu_pct')}, {name: 'IO wait', color: SLOTS[1], values: col('iowait_pct')}],
     yMax: 100, yFmt: function (v) { return pct(v); }, xFmt: tf, tipFmt: tt, empty: empty, label: 'CPU and IO wait'});
   lineChart($('m-mem'), {xs: xs, series: [{name: 'Memory used', color: SLOTS[2], area: true, values: col('mem_used_pct')}],
     yMax: 100, yFmt: function (v) { return pct(v); }, xFmt: tf, tipFmt: tt, empty: empty, label: 'Memory used'});
-  lineChart($('m-disk'), {xs: xs, series: [{name: 'Busiest disk', color: SLOTS[3], area: true, values: col('disk_busy_pct')}],
+  lineChart($('m-disk'), {xs: xs, series: [{name: 'Busiest disk', color: SLOTS[1], area: true, values: col('disk_busy_pct')}],
     yMax: 100, yFmt: function (v) { return pct(v); }, xFmt: tf, tipFmt: tt, empty: empty, label: 'Disk busy'});
-  lineChart($('m-net'), {xs: xs, series: [{name: 'Upload', color: SLOTS[0], values: col('up_bps')}, {name: 'Download', color: SLOTS[4], values: col('dl_bps')}],
+  lineChart($('m-net'), {xs: xs, series: [{name: 'Upload', color: SLOTS[0], area: true, values: col('up_bps')}, {name: 'Download', color: SLOTS[2], area: true, values: col('dl_bps')}],
     yFmt: function (v) { return rate(v); }, xFmt: tf, tipFmt: tt, empty: empty, label: 'qBittorrent transfer'});
   var vol = $('k-volume'); clear(vol);
   vol.appendChild(el('div', {'class': 'label'}, [icon('disk', 'sm'), 'Volume usage']));
   (M.volumes || []).slice(0, 2).forEach(function (v) {
     var p = v.total ? v.used / v.total * 100 : 0, g = el('div');
-    gauge(g, p, 'Volume', p >= 90 ? C.ko : p >= 80 ? C.warn : C.ok);
+    gauge(g, p, 'Volume', volumeColor(p));
     vol.appendChild(el('div', {'class': 'gauge-wrap'}, [g, el('div', {}, [el('div', {'class': 'value', text: pct(p)}),
       el('div', {'class': 'foot', text: bytes(v.free) + ' free of ' + bytes(v.total)})])]));
   });
@@ -1489,7 +1512,7 @@ function init() {
     renderHero(); renderOverview(); renderOutside(); renderWarnings(); renderOrphans();
   }
   if (lib) {
-    renderDuplicates(); buildLibraryControls();
+    renderLibraryHero(); renderDuplicates(); buildLibraryControls();
     var f = new URLSearchParams(location.search).get('filter');
     if (f && CHIPFN[f]) setFilter(f); else renderLibrary();
     $('search').addEventListener('input', function (e) {
