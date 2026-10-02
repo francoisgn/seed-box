@@ -1583,9 +1583,15 @@ var REASONS = {
 };
 function renderOutside() {
   var box = $('outside'); clear(box);
-  if (!D.unmatched.length) { box.appendChild(el('p', {'class': 'empty', text: 'Every torrent matches a library entry.'})); return; }
+  // Unfinished downloads in the transient folder are the download queue, not a problem.
+  var list = D.unmatched.filter(function (u) { return u.reason !== 'transient'; });
+  var queued = D.unmatched.length - list.length;
+  if (queued) {
+    box.appendChild(el('p', {'class': 'muted small', text: queued + ' unfinished download(s) in the transient folder, not counted here (live in Activity).'}));
+  }
+  if (!list.length) { box.appendChild(el('p', {'class': 'empty', text: 'Every torrent matches a library entry.'})); return; }
   var tb = el('tbody');
-  D.unmatched.forEach(function (u) {
+  list.forEach(function (u) {
     var r = REASONS[u.reason] || ['', u.reason, ''];
     tb.appendChild(el('tr', {}, [el('td', {}, [el('span', {'class': 'badge ' + r[0], title: r[2], text: r[1]})]),
       el('td', {'class': 'name'}, [el('div', {'class': 't', title: u.name, text: u.name}), el('div', {'class': 'path', text: u.path})]),

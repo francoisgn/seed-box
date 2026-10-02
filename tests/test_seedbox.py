@@ -255,6 +255,21 @@ class Pipeline(unittest.TestCase):
         self.assertEqual((movie_a.size, movie_a.files), (101, 2))
         self.assertEqual(len(index), 6)
 
+    def test_correlate_transient_downloads(self):
+        entries, index = library.build(self.cfg)
+        self.cfg.transient_dir = "/tmp-inc"
+        qbt = FakeQbt(
+            torrents=[
+                {"hash": "q", "name": "Queued", "progress": 0, "content_path": "/tmp-inc/partial/Queued.mkv"},
+                {"hash": "d", "name": "Done", "progress": 1, "content_path": "/tmp-inc/partial/Done.mkv"},
+            ],
+            trackers={},
+            files={"q": ["Queued.mkv"], "d": ["Done.mkv"]},
+        )
+        _, unmatched = collect.correlate(self.cfg, qbt, entries, index)
+        # Unfinished: the download queue. Finished but still there: reported.
+        self.assertEqual([(u["name"], u["reason"]) for u in unmatched], [("Queued", "transient"), ("Done", "missing")])
+
     def test_correlate_by_inode_and_path(self):
         entries, index = library.build(self.cfg)
         qbt = FakeQbt(

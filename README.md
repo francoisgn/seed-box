@@ -71,7 +71,7 @@ reduced to their domain and merged. The dashboard flags:
 | Lone film | the only film of a grouping folder: fine while moving, not as a lasting state | move it |
 | Category | torrent not in the category of its folder, cross-seed link without the link category, finished download still in the transient folder | set the matching category, or apply the category folder (qBittorrent moves it) |
 | Outside declared trackers | tracker unknown to Prowlarr (public, one-off) | clean it when done |
-| Outside the library | torrent matched to no entry: library copy deleted (only cross-seed links left), other share, missing files | shown with the reason |
+| Outside the library | torrent matched to no entry: library copy deleted (only cross-seed links left), other share, missing files. Unfinished downloads in `transient_dir` are the download queue: only counted, not listed | shown with the reason |
 | Deleted by the tracker | the tracker answers "unregistered" or 404 for this torrent (a 404 on every torrent of a tracker means its announce URL changed, and is not flagged) | remove them all in one click |
 | Unreadable file | a media file nobody can read (mode 000): its torrents look fine until a peer asks, then fail with `file_open` | `seedbox check` lists them; `chmod a+r` |
 

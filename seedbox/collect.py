@@ -81,6 +81,10 @@ def _under_roots(cfg, path):
     return any(path == r or path.startswith(r + "/") for r in cfg.roots)
 
 
+def _in_transient(cfg, path):
+    return bool(cfg.transient_dir) and (path == cfg.transient_dir or path.startswith(cfg.transient_dir + "/"))
+
+
 def _torrent_files(cfg, client, torrent):
     """[(local path, file dict)] from the API file list, with both base paths tried."""
     try:
@@ -224,7 +228,10 @@ def correlate(cfg, client, entries, inode_index, progress=lambda msg: None):
 
         if not targets:
             content = map_path(cfg, torrent.get("content_path") or "")
-            if not found:
+            if record["progress"] < 1 and _in_transient(cfg, content):
+                # The download queue, kept apart from the library on purpose: not a problem.
+                reason = "transient"
+            elif not found:
                 reason = "downloading" if record["progress"] < 1 else "missing"
             elif _in_link_dir(cfg, content):
                 reason = "link_only"
@@ -717,7 +724,8 @@ def run(cfg, log, progress=lambda msg: None):
             "uploaded": int(sum(e.uploaded for e in entries)),
             "torrents": len(records),
             "cross_seed_torrents": sum(1 for r in records if r["link"]),
-            "unmatched_torrents": len(unmatched),
+            "unmatched_torrents": sum(1 for u in unmatched if u["reason"] != "transient"),
+            "transient_downloads": sum(1 for u in unmatched if u["reason"] == "transient"),
             "prowlarr": bool(indexers),
             "target_trackers": sorted(target),
         },

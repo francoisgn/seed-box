@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.1.1
+
+- Torrents outside the library: unfinished downloads in `transient_dir`
+  (the download queue, kept apart from the library on purpose) are no longer
+  listed there, only counted; they stay visible live in Activity. A finished
+  one left there is still reported.
+
 ## 2.1.0
 
 - Library and Upload merged: checks run from the library, on every tracker
