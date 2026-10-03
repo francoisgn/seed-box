@@ -440,6 +440,26 @@ class Metrics(unittest.TestCase):
         )
         self.assertEqual(disks, {"sda": (100, 50, 700)})
 
+    def test_top_devices(self):
+        # sda5 and sdb5 hold md2, md2 holds dm-1: only dm-1 and md0 (used directly) are on top.
+        with tempfile.TemporaryDirectory() as root:
+            tree = {
+                "sda/sda5/holders/md2": 0,
+                "sdb/sdb5/holders/md2": 0,
+                "md2/holders/dm-1": 0,
+                "dm-1/holders": None,
+                "md0/holders": None,
+                "loop0/holders": None,
+            }
+            for path, leaf in tree.items():
+                os.makedirs(os.path.join(root, path if leaf is None else os.path.dirname(path)), exist_ok=True)
+                if leaf is not None:
+                    open(os.path.join(root, path), "w").close()
+            self.assertEqual(metrics.top_devices(root), {"dm-1", "md0"})
+        self.assertIsNone(metrics.top_devices("/nonexistent"))
+        stats = "   9 2 md2 1 0 8 0 1 0 16 0 0 1 0\n 253 1 dm-1 1 0 4 0 1 0 2 0 0 1 0\n"
+        self.assertEqual(metrics.parse_sectors(stats, {"dm-1"}), {"dm-1": (4, 2)})
+
     def test_store_and_series(self):
         with tempfile.TemporaryDirectory() as tmp:
             cfg = load_cfg([tmp], tmp, metrics_interval=300)

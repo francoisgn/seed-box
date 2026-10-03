@@ -84,6 +84,7 @@ def indexers(client, aliases):
         ident = indexer.get("id")
         st = stats.get(ident, {})
         result[key] = {
+            "id": ident,
             "name": indexer.get("name", key),
             "enabled": bool(indexer.get("enable")),
             "privacy": indexer.get("privacy", ""),

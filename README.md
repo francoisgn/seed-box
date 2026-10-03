@@ -57,6 +57,10 @@ reduced to their domain and merged. The dashboard flags:
 - 🟠 a tracker seeding content but missing from Prowlarr (cross-seed will not search it),
 - 🔴 a tracker Prowlarr disabled after errors,
 - per entry, **"missing on tracker X"**: content you could still share there.
+  In the library, one chip per declared tracker (each tracker keeps one
+  colour everywhere): the selected trackers must seed the entry, the others
+  must not. All but one selected: what that tracker misses and all the
+  others have.
 
 ### Diagnosis and fixes
 

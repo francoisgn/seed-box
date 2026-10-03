@@ -181,7 +181,6 @@ SECTIONS = {
     <div id="lib-chips" style="display:flex;flex-direction:column;gap:8px;margin-bottom:16px"></div>
     <div class="chips" style="margin-bottom:8px">
       <select class="select" id="lib-folder" aria-label="Folder"><option value="">All folders</option></select>
-      <select class="select" id="lib-missing" aria-label="Missing on tracker"><option value="">Any tracker</option></select>
     </div>
     <div class="table-wrap"><table id="lib-table">
       <thead><tr><th style="width:48px"><input type="checkbox" id="lib-all" aria-label="Select all shown"></th>

@@ -65,6 +65,48 @@ def parse_diskstats(text):
     return out
 
 
+def parse_sectors(text, names):
+    """{device: (sectors read, sectors written)} for the given devices."""
+    out = {}
+    for line in text.splitlines():
+        parts = line.split()
+        if len(parts) >= 14 and parts[2] in names:
+            out[parts[2]] = (int(parts[5]), int(parts[9]))
+    return out
+
+
+def top_devices(sys_block="/sys/block"):
+    """Block devices at the top of the stack: what the filesystems read and write.
+
+    RAID members and the disks under them count an IO several times (mirror
+    copies, parity), so throughput is measured on the devices nothing else
+    holds (LVM volumes, md arrays used directly, plain disks), from
+    /sys/block/*/holders. None when sysfs is not readable: whole disks then.
+    """
+    try:
+        names = os.listdir(sys_block)
+    except OSError:
+        return None
+    top = set()
+    for name in names:
+        if name.startswith(("loop", "ram", "zram", "synoboot", "sr", "fd")):
+            continue
+        base = os.path.join(sys_block, name)
+        held = [os.path.join(base, "holders")] + [
+            os.path.join(base, p, "holders") for p in _listdir(base) if p.startswith(name)
+        ]
+        if not any(_listdir(h) for h in held):
+            top.add(name)
+    return top or None
+
+
+def _listdir(path):
+    try:
+        return os.listdir(path)
+    except OSError:
+        return []
+
+
 def volumes(paths):
     """Usage of the filesystems holding paths, one row per device."""
     seen = {}
@@ -97,11 +139,16 @@ class Sampler:
         self.client_factory = client_factory
         self.client = None
         self.prev = None
+        self.top = None
 
     def sample(self):
         now = time.time()
         cpu = parse_cpu(_read("/proc/stat"))
-        disks = parse_diskstats(_read("/proc/diskstats"))
+        stats = _read("/proc/diskstats")
+        disks = parse_diskstats(stats)
+        top = self.top if self.top is not None else top_devices()
+        self.top = top
+        io = parse_sectors(stats, top) if top else {k: v[:2] for k, v in disks.items()}
         mem_total, mem_avail = parse_meminfo(_read("/proc/meminfo"))
         load = _read("/proc/loadavg").split()
         point = {
@@ -115,19 +162,23 @@ class Sampler:
             if total > 0:
                 point["cpu_pct"] = round((1 - (cpu[1] - self.prev["cpu"][1]) / total) * 100, 1)
                 point["iowait_pct"] = round((cpu[2] - self.prev["cpu"][2]) / total * 100, 1)
+            # Busy: the busiest physical disk. Throughput: the top of the stack,
+            # so a RAID write is not counted once per member.
             busy, read, written = 0.0, 0, 0
-            for name, (r, w, io_ms) in disks.items():
+            for name, (_, _, io_ms) in disks.items():
                 old = self.prev["disks"].get(name)
-                if not old:
-                    continue
-                read += r - old[0]
-                written += w - old[1]
-                busy = max(busy, (io_ms - old[2]) / (dt * 1000) * 100)
+                if old:
+                    busy = max(busy, (io_ms - old[2]) / (dt * 1000) * 100)
+            for name, (r, w) in io.items():
+                old = self.prev["io"].get(name)
+                if old:
+                    read += r - old[0]
+                    written += w - old[1]
             if dt > 0 and disks:
                 point["disk_busy_pct"] = round(min(busy, 100), 1)
                 point["disk_read_bps"] = int(read * 512 / dt)
                 point["disk_write_bps"] = int(written * 512 / dt)
-        self.prev = {"time": now, "cpu": cpu, "disks": disks}
+        self.prev = {"time": now, "cpu": cpu, "disks": disks, "io": io}
         info = self._transfer()
         if info:
             point["up_bps"] = info.get("up_info_speed", 0)

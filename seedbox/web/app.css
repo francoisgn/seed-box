@@ -25,10 +25,13 @@
 }
 
 * { box-sizing: border-box; }
-html { scroll-behavior: smooth; scroll-padding-top: 88px; }
+/* Page width locked to the viewport: wide content (tables, chip rows,
+   tooltips) scrolls inside its own box, never the page sideways. Mobile Safari
+   ignores overflow on body alone; clip keeps position: sticky working. */
+html { scroll-behavior: smooth; scroll-padding-top: 88px; overflow-x: hidden; overflow-x: clip; }
 body {
   margin: 0;
-  overflow-x: hidden;
+  overflow-x: hidden; overflow-x: clip; max-width: 100vw;
   background: var(--bg);
   color: var(--t1);
   font: 400 15px/20px Inconsolata, ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
@@ -108,6 +111,9 @@ a { color: var(--primary); }
 .chip .check { display: none; width: 18px; height: 18px; }
 .chip[aria-pressed="true"] .check { display: block; color: var(--primary); }
 .chip .n { color: var(--t3); font-weight: 400; }
+/* Tracker chips: the tracker's colour on the dot, faded behind once pressed. */
+.tchip .tdot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--tc); flex: none; }
+.tchip[aria-pressed="true"] { background: color-mix(in srgb, var(--tc) 28%, transparent); box-shadow: inset 0 0 0 1px var(--tc); padding-left: 16px; }
 .select {
   height: 32px; border-radius: 8px; border: 1px solid var(--line); background: var(--s1);
   color: var(--t1); padding: 0 8px; font-size: 14px;
@@ -295,7 +301,8 @@ dialog .form-grid input.missing { border-color: var(--ko); }
   .top-actions .btn { padding: 0 10px; }
   .hero p { overflow-wrap: anywhere; }
   .crumbs { display: none; }
-  main { margin-left: 0; padding: 24px 16px 96px; }
+  main { margin-left: 0; padding: 24px 16px 96px; min-width: 0; max-width: 100vw; }
+  .table-wrap { overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
   .grid { gap: 16px; }
   .c3, .c4, .c5, .c6, .c7, .c8 { grid-column: span 12; }
   .hero { flex-direction: column; align-items: flex-start; gap: 16px; }

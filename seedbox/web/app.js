@@ -15,8 +15,6 @@ function level(v, steps, last) { for (var i = 0; i < steps.length; i++) if (v < 
 function sharedColor(p) { return level(p, [[20, C.ko], [50, C.warn], [66, C.primary]], C.ok); }
 function volumeColor(p) { return level(p, [[50, C.ok], [75, C.primary], [90, C.warn]], C.ko); }
 function ratioColor(r) { return level(r, [[0.5, C.ko], [1, C.warn], [2, C.primary]], C.ok); }
-// Trackers in one chart: shades of one blue, darkest for the biggest.
-var BLUES = ['#1f5fae', '#3987e5', '#5c9ded', '#80b3f2', '#a3c9f6', '#c6def9'];
 
 // ---------- helpers
 function el(tag, attrs, kids) {
@@ -149,9 +147,16 @@ function toast(msg) {
 }
 
 // ---------- shared lookups
-var TRACKERS = D.trackers.slice().sort(function (a, b) { return a.key < b.key ? -1 : 1; });
+// One colour per tracker, the same in every chart, chip and filter: declared
+// trackers take the slots in Prowlarr order (id), so adding one never
+// recolours the others; trackers outside Prowlarr share the neutral grey.
+var TRACKERS = D.trackers.slice().sort(function (a, b) {
+  if (a.in_prowlarr !== b.in_prowlarr) return a.in_prowlarr ? -1 : 1;
+  var x = a.id === undefined ? Infinity : a.id, y = b.id === undefined ? Infinity : b.id;
+  return x !== y ? x - y : a.key < b.key ? -1 : 1;
+});
 var TCOLOR = {}, TNAME = {};
-TRACKERS.forEach(function (t, i) { TCOLOR[t.key] = SLOTS[i % SLOTS.length]; TNAME[t.key] = t.name; });
+TRACKERS.forEach(function (t, i) { TCOLOR[t.key] = t.in_prowlarr ? SLOTS[i % SLOTS.length] : C.neutral; TNAME[t.key] = t.name; });
 var BYHASH = {};
 D.torrents.forEach(function (t) { BYHASH[t.hash] = t; });
 var S = D.summary;
@@ -160,7 +165,7 @@ var FOLDERS = D.folders || [];
 function trackerChip(key) {
   var c = TCOLOR[key];
   // Same look as the status badges: the colour faded behind, full on the dot.
-  return el('span', {'class': 'tk', style: c ? 'background:' + c + '2e' : null}, [el('i', {style: 'background:' + (c || C.neutral)}), TNAME[key] || key]);
+  return el('span', {'class': 'tk', style: c && c[0] === '#' ? 'background:' + c + '2e' : null}, [el('i', {style: 'background:' + (c || C.neutral)}), TNAME[key] || key]);
 }
 var COVER = {
   everywhere: ['ok', 'Everywhere'], partial: ['info', 'Partial'], none: ['', 'Not seeded']
@@ -537,10 +542,9 @@ function renderOverview() {
     {label: 'On disk, not seeded', value: parts.none, color: C.neutral}
   ], pct(S.coverage_pct), 'shared');
 
-  var byCount = D.trackers.slice().sort(function (a, b) { return b.entries - a.entries; }).map(function (t) { return t.key; });
   hbars($('c-trackers'), D.trackers.map(function (t) {
     var st = !t.in_prowlarr ? 'not in Prowlarr' : !t.enabled ? 'disabled' : t.failing ? 'failing' : 'ok';
-    return {label: t.name, value: t.entries, color: BLUES[Math.min(byCount.indexOf(t.key), BLUES.length - 1)], tip: [
+    return {label: t.name, value: t.entries, color: TCOLOR[t.key], tip: [
       {value: String(t.entries), label: 'entries'}, {value: bytes(t.size), label: 'shared'},
       {value: bytes(t.uploaded), label: 'uploaded'}, {value: st, label: ''}]};
   }), S.entries);
@@ -980,7 +984,7 @@ function renderDuplicates() {
 }
 
 // ---------- library
-var folder = '', missing = '', query = '', sortKey = 'size', desc = true, openRow = null, libShown = [];
+var folder = '', query = '', sortKey = 'size', desc = true, openRow = null, libShown = [];
 var selected = {};
 D.entries.forEach(function (e, i) {
   e._i = i;
@@ -1037,9 +1041,17 @@ function inGroup(e, gid) {
   var keys = Object.keys(active[gid]);
   return !keys.length || keys.some(function (k) { return CHIPFN[k].fn(e); });
 }
-function baseMatch(e) {
-  return (!folder || e.folder === folder) && (!missing || e.trackers.indexOf(missing) < 0) && (!query || e._k.indexOf(query) >= 0);
+// Tracker chips (declared trackers): once one is selected, an entry must be
+// seeded on every selected tracker and missing on every other one. All but
+// one selected: what that tracker misses and the others all have.
+var TCHIPS = TRACKERS.filter(function (t) { return t.in_prowlarr; });
+var tsel = {};
+function trackerMatch(e, sel) {
+  if (!Object.keys(sel).length) return true;
+  return TCHIPS.every(function (t) { return !sel[t.key] === (e.trackers.indexOf(t.key) < 0); });
 }
+function otherMatch(e) { return (!folder || e.folder === folder) && (!query || e._k.indexOf(query) >= 0); }
+function baseMatch(e) { return otherMatch(e) && trackerMatch(e, tsel); }
 // From the home page's tiles: the library page, filtered.
 function goLibrary(f) {
   if ($('lib-body')) { setFilter(f); location.hash = '#library'; return; }
@@ -1047,7 +1059,7 @@ function goLibrary(f) {
 }
 // From a tile: show only this chip.
 function setFilter(f) {
-  active = noFilter();
+  active = noFilter(); tsel = {};
   if (CHIPFN[f]) active[CHIPFN[f].group][f] = true;
   firstPage('library'); renderLibrary();
 }
@@ -1056,13 +1068,27 @@ function toggleChip(f) {
   if (g[f]) delete g[f]; else g[f] = true;
   firstPage('library'); renderLibrary();
 }
+function toggleTracker(k) {
+  if (tsel[k]) delete tsel[k]; else tsel[k] = true;
+  firstPage('library'); renderLibrary();
+}
 function updateChips() {
-  var none = GROUPS.every(function (g) { return !Object.keys(active[g.id]).length; });
+  var none = !Object.keys(tsel).length && GROUPS.every(function (g) { return !Object.keys(active[g.id]).length; });
   document.querySelectorAll('#lib-chips .chip').forEach(function (c) {
     var f = c.dataset.f;
     if (f === 'all') {
       c.setAttribute('aria-pressed', none ? 'true' : 'false');
       c.querySelector('.n').textContent = String(D.entries.filter(baseMatch).length);
+      return;
+    }
+    if (c.dataset.t) {
+      // Count with this chip toggled: what a click would show.
+      var k = c.dataset.t, sel = Object.assign({}, tsel);
+      if (sel[k]) delete sel[k]; else sel[k] = true;
+      c.setAttribute('aria-pressed', tsel[k] ? 'true' : 'false');
+      c.querySelector('.n').textContent = String(D.entries.filter(function (e) {
+        return otherMatch(e) && trackerMatch(e, sel) && inGroups(e);
+      }).length);
       return;
     }
     var gid = CHIPFN[f].group;
@@ -1080,6 +1106,15 @@ function buildLibraryControls() {
       [icon('check', 'check'), label, el('span', {'class': 'n'})]);
   }
   chips.appendChild(el('div', {'class': 'chips'}, [chip('all', 'All', function () { setFilter('all'); })]));
+  if (TCHIPS.length) {
+    chips.appendChild(el('div', {'class': 'chips', style: 'align-items:center'}, [el('span', {'class': 'muted small', style: 'width:80px',
+      title: 'Seeded on the selected trackers, missing on the others', text: 'Trackers'})].concat(TCHIPS.map(function (t) {
+      var b = el('button', {'class': 'chip tchip', type: 'button', 'data-f': 't:' + t.key, 'data-t': t.key, 'aria-pressed': 'false',
+        style: '--tc:' + TCOLOR[t.key], title: 'Seeded on the selected trackers, missing on the others', onclick: function () { toggleTracker(t.key); }},
+        [el('i', {'class': 'tdot'}), t.name, el('span', {'class': 'n'})]);
+      return b;
+    }))));
+  }
   GROUPS.forEach(function (g) {
     chips.appendChild(el('div', {'class': 'chips', style: 'align-items:center'}, [el('span', {'class': 'muted small', style: 'width:80px', text: g.label})]
       .concat(g.chips.map(function (c) { return chip(c[0], c[1], function () { toggleChip(c[0]); }); }))));
@@ -1089,9 +1124,6 @@ function buildLibraryControls() {
   D.entries.forEach(function (e) { names[e.folder] = (names[e.folder] || 0) + 1; });
   Object.keys(names).sort().forEach(function (f) { fs.appendChild(el('option', {value: f, text: f + ' (' + names[f] + ')'})); });
   fs.onchange = function () { folder = fs.value; firstPage('library'); renderLibrary(); };
-  var ms = $('lib-missing');
-  TRACKERS.forEach(function (t) { ms.appendChild(el('option', {value: t.key, text: 'Missing on ' + t.name})); });
-  ms.onchange = function () { missing = ms.value; firstPage('library'); renderLibrary(); };
   document.querySelectorAll('#lib-table th[data-sort]').forEach(function (th) {
     th.onclick = function () { var k = th.dataset.sort; desc = k === sortKey ? !desc : k !== 'name' && k !== 'folder'; sortKey = k; renderLibrary(); };
   });

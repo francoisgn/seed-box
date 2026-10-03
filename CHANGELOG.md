@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.2.0
+
+- One colour per tracker, the same in every chart, chip and tile ("Seeded
+  entries over time", Trackers, ratios, library). Declared trackers take
+  their colour in Prowlarr order, so adding one no longer recolours the
+  others; trackers outside Prowlarr are grey.
+- Library: the "Missing on" menu becomes tracker chips in those colours. With
+  chips selected, an entry must be seeded on every selected tracker and
+  missing on every other one: all but one selected lists what that tracker
+  misses while the others all have it. Each chip counts what a click shows.
+- Mobile: the page no longer scrolls sideways (wide tables scroll inside
+  their own box).
+- System metrics: disk read/write throughput is measured on the volumes
+  (top of the block stack), no longer summed over RAID members, which counted
+  mirror copies and parity. Busy % still reports the busiest physical disk.
+
 ## 2.1.1
 
 - Torrents outside the library: unfinished downloads in `transient_dir`
