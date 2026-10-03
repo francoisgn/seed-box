@@ -72,8 +72,9 @@ spin() {
 REPO_DIR=$(cd "$(dirname "$0")/.." && pwd)
 
 KEYS=" DEPLOY_HOST DEPLOY_USER DEPLOY_PORT DEPLOY_SSH_KEY DEPLOY_DIR DEPLOY_COMPOSE DEPLOY_DOCKER COMPOSE_TEMPLATE
-  SEEDBOX_TOML SEEDBOX_VERSION PUID PGID TZ MEDIA_ROOT SEEDBOX_PORT CROSS_SEED_DIR
-  QBT_PASSWORD QBT_PASSWORD_CMD PROWLARR_API_KEY PROWLARR_API_KEY_CMD TMDB_API_KEY TMDB_API_KEY_CMD "
+  SEEDBOX_TOML SEEDBOX_VERSION PUID PGID TZ MEDIA_ROOT SEEDBOX_PORT CROSS_SEED_DIR PLEX_CONFIG_DIR
+  QBT_PASSWORD QBT_PASSWORD_CMD PROWLARR_API_KEY PROWLARR_API_KEY_CMD TMDB_API_KEY TMDB_API_KEY_CMD
+  PLEX_TOKEN PLEX_TOKEN_CMD "
 PATH_KEYS=" DEPLOY_SSH_KEY COMPOSE_TEMPLATE SEEDBOX_TOML "
 
 has_word() { case " $(printf '%s' "$1" | tr '\n' ' ') " in *" $2 "*) return 0 ;; esac; return 1; }
@@ -197,7 +198,7 @@ if [ "$MODE" = print ]; then
   info "config:$FILES"
   for k in $KEYS; do
     eval "v=\$C_$k"
-    case $k in QBT_PASSWORD | PROWLARR_API_KEY | TMDB_API_KEY) v=$(masked "$v") ;; esac
+    case $k in QBT_PASSWORD | PROWLARR_API_KEY | TMDB_API_KEY | PLEX_TOKEN) v=$(masked "$v") ;; esac
     printf '%s=%s\n' "$k" "$v"
   done
   exit 0
@@ -244,6 +245,7 @@ secret() { # secret <name> <value> <command>
 QBT_SECRET=$(secret QBT_PASSWORD_CMD "$C_QBT_PASSWORD" "$C_QBT_PASSWORD_CMD") || exit 1
 PROWLARR_SECRET=$(secret PROWLARR_API_KEY_CMD "$C_PROWLARR_API_KEY" "$C_PROWLARR_API_KEY_CMD") || exit 1
 TMDB_SECRET=$(secret TMDB_API_KEY_CMD "$C_TMDB_API_KEY" "$C_TMDB_API_KEY_CMD") || exit 1
+PLEX_SECRET=$(secret PLEX_TOKEN_CMD "$C_PLEX_TOKEN" "$C_PLEX_TOKEN_CMD") || exit 1
 [ -n "$QBT_SECRET" ] || warn "no qBittorrent password (fine if seedbox.toml has it or the client whitelists the host)"
 
 if [ "$MODE" = deploy ]; then
@@ -267,7 +269,8 @@ cp "$C_SEEDBOX_TOML" "$STAGE/seedbox.toml"
 printf '%s' "$QBT_SECRET" >"$STAGE/secrets/qbt_password"
 printf '%s' "$PROWLARR_SECRET" >"$STAGE/secrets/prowlarr_api_key"
 printf '%s' "$TMDB_SECRET" >"$STAGE/secrets/tmdb_api_key"
-for k in SEEDBOX_VERSION PUID PGID TZ MEDIA_ROOT SEEDBOX_PORT CROSS_SEED_DIR; do
+printf '%s' "$PLEX_SECRET" >"$STAGE/secrets/plex_token"
+for k in SEEDBOX_VERSION PUID PGID TZ MEDIA_ROOT SEEDBOX_PORT CROSS_SEED_DIR PLEX_CONFIG_DIR; do
   eval "v=\$C_$k"
   case $v in *"'"* | *'
 '*) die "$k contains a quote or newline" ;; esac
@@ -284,7 +287,7 @@ fi
 # --- Deploy
 upload() {
   COPYFILE_DISABLE=1 tar --format=ustar -C "$STAGE" -cf - . |
-    rssh "umask 077 && mkdir -p $RDIR/data $RDIR/cross-seed && tar -C $RDIR -xf - && chmod 700 $RDIR/secrets"
+    rssh "umask 077 && mkdir -p $RDIR/data $RDIR/cross-seed $RDIR/plex && tar -C $RDIR -xf - && chmod 700 $RDIR/secrets"
 }
 info "seedbox $C_SEEDBOX_VERSION -> $TARGET:$C_DEPLOY_DIR"
 spin "Upload config, secrets and compose file" upload || exit 1

@@ -28,6 +28,12 @@ NAV = [
     ("library", "Library", "M3 7h14v13H3zM7 3h14v13M8 11v5l4-2.5z"),
     ("upload", "Upload", "M12 20V8M7 13l5-5 5 5M5 4h14"),
     ("logs-sec", "Logs", "M5 5h14M5 9.5h14M5 14h9M5 18.5h9"),
+    ("plex-libraries", "Libraries", "M4 5h16v11H4zM8 20h8M12 16v4"),
+    ("plex-playing", "Playback", "M8 5v14l11-7z"),
+    ("plex-unwatched", "Never watched", "M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6zM4 4l16 16"),
+    ("plex-transcode", "Transcoding", "M4 7h11M11 3l4 4-4 4M20 17H9M13 13l-4 4 4 4"),
+    ("plex-recent", "Recently added", "M12 7v5l3 3M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z"),
+    ("plex-server", "Server", "M4 4h16v6H4zM4 14h16v6H4zM8 7h1M8 17h1"),
 ]
 # Two pages from the same data: the control plane's home, and the library page
 # (entries, duplicates, upload). Activity is on both: what qBittorrent is busy with.
@@ -36,11 +42,18 @@ PAGES = {
              "sections": ["attention", "overview", "system", "activity", "logs-sec"]},
     "library": {"file": "library.html", "title": "Library Management plane", "logo": "library.svg",
                 "sections": ["library", "duplicates", "activity", "upload"]},
+    "plex": {"file": "plex.html", "title": "Plex Media plane", "logo": "plex.svg",
+             "sections": ["plex-libraries", "plex-playing", "activity", "plex-unwatched", "plex-transcode",
+                          "plex-recent", "plex-server"]},
 }  # fmt: skip
 # Below the page's own sections, after a separator: the other pages.
+LIBRARY_LINK = ("library.html", "Library page", "M3 7h14v13H3zM7 3h14v13M8 11v5l4-2.5z")
+PLEX_LINK = ("plex.html", "Plex page", "M4 5h16v11H4zM8 20h8M12 16v4M10 8v5l4-2.5z")
+HOME_LINK = ("./", "Back Home", "M15 6l-6 6 6 6")
 OTHER = {
-    "home": [("library.html", "Library page", "M3 7h14v13H3zM7 3h14v13M8 11v5l4-2.5z")],
-    "library": [("./", "Back Home", "M15 6l-6 6 6 6")],
+    "home": [LIBRARY_LINK, PLEX_LINK],
+    "library": [HOME_LINK, PLEX_LINK],
+    "plex": [HOME_LINK, LIBRARY_LINK],
 }
 # Auto refresh period, shown on its button (the page script uses the same value).
 AUTO_REFRESH_S = 90
@@ -208,6 +221,53 @@ SECTIONS = {
     <div class="card c12"><div class="card-head"><h3>Kept for review</h3><span class="sub muted small">tracker .torrent files in review/, to be matched to the library by hand</span></div><div id="up-reviews"></div></div>
   </div>
 </section>""",
+    "plex-libraries": """<section id="plex-libraries">
+  <div class="section-head"><h2>Plex libraries</h2><span class="muted" id="px-sub">what Plex holds, read from its API</span></div>
+  <div class="grid">
+    <div class="card kpi c3" id="px-total" data-live></div>
+    <div class="card kpi c3" id="px-films" data-live></div>
+    <div class="card kpi c3" id="px-episodes" data-live></div>
+    <div class="card kpi c3" id="px-watched" data-live></div>
+    <div class="card c12" data-live><div class="card-head"><h3>By library</h3><span class="sub muted small">size on disk, items, watched, last scan, unmatched and missing files</span></div><div id="px-libs"></div></div>
+    <div class="card c6" data-live><div class="card-head"><h3>Space by library</h3><span class="sub muted small">share of the total</span></div><div class="chart" id="px-space"></div></div>
+    <div class="card c6" data-live><div class="card-head"><h3>In progress</h3><span class="sub muted small">started, not finished: where playback resumes</span></div><div id="px-progress"></div></div>
+  </div>
+</section>""",
+    "plex-playing": """<section id="plex-playing">
+  <div class="section-head"><h2>Playback</h2><span class="muted">what plays now, and the disk load at the same time</span></div>
+  <div class="grid">
+    <div class="card kpi c4" id="px-streams" data-live></div>
+    <div class="card kpi c4" id="px-disk" data-live></div>
+    <div class="card kpi c4" id="px-seeding" data-live></div>
+    <div class="card c12" data-live><div class="card-head"><h3>Now playing</h3><span class="sub muted small">player, Direct Play or transcode, bitrate</span></div><div id="px-sessions"></div></div>
+    <div class="card c6" data-live><div class="card-head"><h3>Busiest disk</h3><span class="sub muted small">last 3 days, sampled by seedbox</span></div><div class="chart" id="px-load"></div></div>
+    <div class="card c6" data-live><div class="card-head"><h3>Plex playback</h3><span class="sub muted small">bitrate of the streams at each sample</span></div><div class="chart" id="px-rate"></div></div>
+  </div>
+</section>""",
+    "plex-unwatched": """<section id="plex-unwatched">
+  <div class="section-head"><h2>Never watched</h2><span class="muted">films never played, biggest first, with their seeding status: the list for the next purge</span></div>
+  <div class="grid">
+    <div class="card c12" data-live><div class="chips" id="px-unw-chips" style="margin-bottom:12px"></div><div id="px-unwatched"></div></div>
+  </div>
+</section>""",
+    "plex-transcode": """<section id="plex-transcode">
+  <div class="section-head"><h2>Transcoding risks</h2><span class="muted">films that leave Direct Play on a player: the NAS cannot transcode 4K, watch them on the other one</span></div>
+  <div class="grid">
+    <div class="card c12" data-live><div class="chips" id="px-tc-chips" style="margin-bottom:12px"></div><div id="px-transcode"></div></div>
+  </div>
+</section>""",
+    "plex-recent": """<section id="plex-recent">
+  <div class="section-head"><h2>Recently added</h2><span class="muted">newest first</span></div>
+  <div class="grid"><div class="card c12" data-live><div id="px-recent"></div></div></div>
+</section>""",
+    "plex-server": """<section id="plex-server">
+  <div class="section-head"><h2>Plex server</h2><span class="muted">version, maintenance, activity, size of its data</span></div>
+  <div class="grid">
+    <div class="card c6" data-live><div class="card-head"><h3>Server</h3></div><div id="px-server"></div></div>
+    <div class="card c6" data-live><div class="card-head"><h3>Scheduled maintenance</h3><span class="sub muted small" id="px-window"></span></div><div id="px-butler"></div></div>
+    <div class="card c12" data-live><div class="card-head"><h3>Activity</h3><span class="sub muted small">scans and metadata updates running now</span></div><div id="px-activities"></div></div>
+  </div>
+</section>""",
     "logs-sec": """<section id="logs-sec">
   <div class="section-head"><h2>Logs</h2><span class="muted">qBittorrent moves, removals and errors</span></div>
   <div class="grid">
@@ -225,6 +285,7 @@ TAIL = """<div class="tooltip" id="tooltip" role="tooltip"></div>
 <script type="application/json" id="history">@history@</script>
 <script>@js@</script>
 @upjs@
+@plexjs@
 </body></html>
 """
 
@@ -238,8 +299,8 @@ def _section(key, page, upload=False):
     html = SECTIONS[key]
     if key == "upload" and upload:
         html = html.replace('<section id="upload" hidden>', '<section id="upload">')
-    if key == "activity" and page != "home":
-        # Disk I/O and transfer belong to the home page; the library page keeps errors, jobs, busy torrents.
+    if key == "activity" and page == "library":
+        # Disk I/O and transfer belong to the home and Plex pages; the library page keeps errors, jobs, busy torrents.
         html = re.sub(r'\n    <div class="card kpi c6" id="a-(io|transfer)" data-live></div>', "", html)
     return html
 
@@ -281,6 +342,7 @@ def render(snap, history, page="home", upload=False):
         "history": _embed(history),
         "js": _asset("app.js"),
         "upjs": f"<script>{_asset('upload.js')}</script>" if "upload" in spec["sections"] else "",
+        "plexjs": f"<script>{_asset('plex.js')}</script>" if page == "plex" else "",
     }
     # One pass over the template: inserted content is never scanned again, and
     # an "@" that is not a known placeholder (a URL) stays as is.

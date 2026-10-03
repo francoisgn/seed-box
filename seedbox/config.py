@@ -47,6 +47,12 @@ class Config:
     # TMDB API key (optional): titles to search trackers with, when matching releases.
     tmdb_api_key: str = ""
 
+    # Plex Media Server (optional): the Plex page. Token: here, SEEDBOX_PLEX_TOKEN,
+    # or read from Plex's Preferences.xml when its config folder is mounted at data_dir.
+    plex_url: str = ""
+    plex_token: str = ""
+    plex_data_dir: str = "/plex"
+
     # Announce or indexer host -> tracker display name, to merge hosts that
     # belong to the same tracker or give them a readable name.
     tracker_aliases: dict = field(default_factory=dict)
@@ -263,6 +269,11 @@ def load(path=None):
 
     cfg.tmdb_api_key = data.get("tmdb", {}).get("api_key", cfg.tmdb_api_key)
 
+    plex = data.get("plex", {})
+    cfg.plex_url = plex.get("url", cfg.plex_url)
+    cfg.plex_token = plex.get("token", cfg.plex_token)
+    cfg.plex_data_dir = plex.get("data_dir", cfg.plex_data_dir)
+
     cfg.tracker_aliases = {k.lower(): v for k, v in data.get("trackers", {}).get("aliases", {}).items()}
 
     output = data.get("output", {})
@@ -295,6 +306,8 @@ def load(path=None):
         "SEEDBOX_PROWLARR_URL": ("prowlarr_url", str),
         "SEEDBOX_PROWLARR_API_KEY": ("prowlarr_api_key", str),
         "SEEDBOX_TMDB_API_KEY": ("tmdb_api_key", str),
+        "SEEDBOX_PLEX_URL": ("plex_url", str),
+        "SEEDBOX_PLEX_TOKEN": ("plex_token", str),
         "SEEDBOX_UPLOAD_PASSKEY": ("upload_passkey", str),
         "SEEDBOX_OUTPUT_DIR": ("output_dir", str),
         "SEEDBOX_SCHEDULE": ("schedule", str),
@@ -313,6 +326,7 @@ def load(path=None):
 
     cfg.qbt_url = cfg.qbt_url.rstrip("/")
     cfg.prowlarr_url = cfg.prowlarr_url.rstrip("/")
+    cfg.plex_url = cfg.plex_url.rstrip("/")
     cfg.roots = [r.rstrip("/") or "/" for r in cfg.roots]
     # Longest prefix first, so nested mappings win.
     cfg.path_map = dict(
@@ -325,7 +339,11 @@ def load(path=None):
         except ValueError as exc:
             raise ConfigError(str(exc)) from exc
     if found and (
-        qbt.get("password") or prowlarr.get("api_key") or data.get("tmdb", {}).get("api_key") or upload.get("passkey")
+        qbt.get("password")
+        or prowlarr.get("api_key")
+        or data.get("tmdb", {}).get("api_key")
+        or upload.get("passkey")
+        or plex.get("token")
     ):
         mode = os.stat(found).st_mode
         if mode & (stat.S_IRWXG | stat.S_IRWXO):

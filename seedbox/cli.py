@@ -19,6 +19,7 @@ from seedbox import (
     create,
     match,
     metrics,
+    plex,
     prowlarr,
     report,
     status,
@@ -117,6 +118,16 @@ def cmd_check(cfg):
             rc = 1
     else:
         ui.warn("Prowlarr not configured (optional)")
+    if cfg.plex_url:
+        try:
+            ident = plex.client(cfg).get("/")
+            ui.ok(f"Plex {ident.get('version')} at {cfg.plex_url} ({ident.get('friendlyName')})")
+            mounted = os.path.isdir(os.path.join(cfg.plex_data_dir, plex.SUPPORT))
+            state = "readable" if mounted else "not mounted (optional)"
+            (ui.ok if mounted else ui.info)(f"Plex data folder {state}: {cfg.plex_data_dir}")
+        except (ApiError, plex.PlexError) as exc:
+            ui.ko(str(exc))
+            rc = 1
     try:
         os.makedirs(cfg.output_dir, exist_ok=True)
         (ui.ok if os.access(cfg.output_dir, os.W_OK) else ui.ko)(f"output dir: {cfg.output_dir}")
@@ -195,6 +206,7 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
     GET  /api/upload   upload API access and settings, torrents kept for review
     POST /api/upload   send checked films through the upload API ([service] actions)
     GET  /api/checks   trackers a check can search, stored check results
+    GET  /api/plex     Plex libraries, playback, server state ([plex] url; ?force=1 skips the cache)
     POST /api/check    check a film against a tracker, keep a tracker's torrent for review ([service] actions)
     GET  /api/created  download a created .torrent or its .nfo (?job=id&file=nfo, [service] actions)
     POST /api/errors/clear  hide the qBittorrent warnings and errors logged so far
@@ -249,6 +261,13 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
             return self._send(code, result)
         if path == "/api/checks":
             code, result = upload.checks_overview(self.cfg)
+            return self._send(code, result)
+        if path == "/api/plex":
+            try:
+                snap = match.load_snapshot(self.cfg) if self.cfg.plex_url else {}
+            except match.MatchError:
+                snap = {}  # no collection yet: films shown without their seeding status
+            code, result = plex.overview(self.cfg, snap, force=params.get("force") == "1")
             return self._send(code, result)
         if path in ("/upload", "/upload.html"):
             return self._moved()

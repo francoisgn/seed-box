@@ -13,6 +13,7 @@ import os
 import threading
 import time
 
+from seedbox import plex
 from seedbox.api import ApiError
 
 _lock = threading.Lock()
@@ -183,6 +184,10 @@ class Sampler:
         if info:
             point["up_bps"] = info.get("up_info_speed", 0)
             point["dl_bps"] = info.get("dl_info_speed", 0)
+        # Plex playback at the same moment: whether the disks keep up with a film.
+        playing = plex.playback(self.cfg)
+        if playing:
+            point.update(playing)
         return point
 
     def _transfer(self):
@@ -246,7 +251,8 @@ def series(cfg, hours=48, buckets=288):
     out = []
     for _, group in sorted(grouped.items()):
         merged = {"t": group[len(group) // 2]["t"]}
-        for key in group[0]:
+        # Every key of the group: a field added by a newer version is not in the older samples.
+        for key in sorted(set().union(*group)):
             if key == "t":
                 continue
             values = [r[key] for r in group if isinstance(r.get(key), (int, float))]

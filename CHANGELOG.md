@@ -1,5 +1,21 @@
 # Changelog
 
+## 2.3.0
+
+- Plex page (`plex.html`, `[plex] url`): libraries (size on disk, items,
+  watched, last scan, unmatched, missing files, in all and per library), what
+  is in progress, playback now (player, Direct Play or transcode, bitrate) next
+  to the disk load and qBittorrent's upload, films never watched biggest first
+  with their seeding status, transcoding risks per player (PS5, Apple TV 4K),
+  recently added, server state (version, update, maintenance tasks, scans, size
+  of its database and metadata). Its header: Clawd watching TV with popcorn.
+- Plex streams and bitrate are sampled with the system metrics.
+- `seedbox check` checks Plex when it is configured.
+- Deploy: optional `PLEX_TOKEN(_CMD)` secret and `PLEX_CONFIG_DIR` mount (read-only:
+  the token is then read from Plex's Preferences.xml).
+- System metrics: a field added by a newer version is no longer dropped when
+  samples are averaged over a long range.
+
 ## 2.2.0
 
 - One colour per tracker, the same in every chart, chip and tile ("Seeded

@@ -73,11 +73,13 @@ errors (typos do not go unnoticed). Values are never executed, except the
 | `QBT_PASSWORD_CMD` / `QBT_PASSWORD` | empty | command printing the qBittorrent password, or the value |
 | `PROWLARR_API_KEY_CMD` / `PROWLARR_API_KEY` | empty | same for the Prowlarr API key |
 | `TMDB_API_KEY_CMD` / `TMDB_API_KEY` | empty | same for a TMDB API key (optional, release matching) |
+| `PLEX_TOKEN_CMD` / `PLEX_TOKEN` | empty | same for a Plex token (optional, Plex page; not needed with `PLEX_CONFIG_DIR`) |
 | `SEEDBOX_VERSION` | version of this checkout | image tag to deploy |
 | `PUID`, `PGID` | uid/gid of the SSH user | container user |
 | `TZ` | `UTC` | container time zone, used by `[service] schedule` |
 | `MEDIA_ROOT` | *(required)* | host path mounted read-only as `/media` |
 | `CROSS_SEED_DIR` | empty | cross-seed's config folder on the host, mounted read-only as `/cross-seed`: its database tells what was searched where (upload opportunities) |
+| `PLEX_CONFIG_DIR` | empty | Plex's config folder on the host, mounted read-only as `/plex`: its token (Preferences.xml) and the size of its database and metadata, for the Plex page |
 | `SEEDBOX_PORT` | `8080` | dashboard port on the host |
 | `COMPOSE_TEMPLATE` | `compose.example.yaml` | compose file to deploy |
 

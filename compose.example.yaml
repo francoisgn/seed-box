@@ -17,6 +17,7 @@ services:
       SEEDBOX_QBT_PASSWORD_FILE: /run/secrets/qbt_password
       SEEDBOX_PROWLARR_API_KEY_FILE: /run/secrets/prowlarr_api_key
       SEEDBOX_TMDB_API_KEY_FILE: /run/secrets/tmdb_api_key
+      SEEDBOX_PLEX_TOKEN_FILE: /run/secrets/plex_token
     volumes:
       - ./seedbox.toml:/config/seedbox.toml:ro
       - ./secrets:/run/secrets:ro
@@ -24,5 +25,7 @@ services:
       - ./data:/data
       # Optional: cross-seed's config folder, read-only, for its search history.
       - ${CROSS_SEED_DIR:-./cross-seed}:/cross-seed:ro
+      # Optional: Plex's config folder, read-only: its token and the size of its data.
+      - ${PLEX_CONFIG_DIR:-./plex}:/plex:ro
     ports:
       - "${SEEDBOX_PORT:-8080}:8080"

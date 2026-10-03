@@ -37,6 +37,10 @@ TMDB_API_KEY_CMD=
 # QBT_PASSWORD=
 # PROWLARR_API_KEY=
 # TMDB_API_KEY=
+# Optional: Plex token for the Plex page. Not needed when PLEX_CONFIG_DIR is set
+# (seedbox reads it from Plex's Preferences.xml).
+PLEX_TOKEN_CMD=
+# PLEX_TOKEN=
 
 # --- Container (.env on the host).
 # Image version: empty = the version of this checkout (git pull = upgrade).
@@ -49,6 +53,8 @@ TZ=Europe/Paris
 MEDIA_ROOT=/srv/media
 # Optional: cross-seed's config folder (holds cross-seed.db), mounted read-only.
 # CROSS_SEED_DIR=/srv/docker/cross-seed
+# Optional: Plex's config folder, mounted read-only: token and size of its data.
+# PLEX_CONFIG_DIR=/srv/docker/plex/config
 SEEDBOX_PORT=8080
 # Compose template: empty = compose.example.yaml of this checkout.
 COMPOSE_TEMPLATE=

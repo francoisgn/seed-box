@@ -27,6 +27,16 @@ max_depth = 4
 # Better as a secret: SEEDBOX_TMDB_API_KEY(_FILE).
 # api_key = ""
 
+[plex]
+# Optional: the Plex page (libraries, playback against the disk load, films
+# never watched, transcoding risks). Plex sees the media under the same /media
+# paths as seedbox.
+# url = "http://plex.lan:32400"
+# Token: better as a secret, SEEDBOX_PLEX_TOKEN(_FILE); not needed when Plex's
+# config folder is mounted at data_dir (read from its Preferences.xml).
+# token = ""
+# data_dir = "/plex"
+
 [qbittorrent]
 url = "http://qbittorrent:8080"
 username = "admin"

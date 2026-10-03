@@ -218,6 +218,32 @@ Served by `seedbox run`, the dashboard also shows:
 Auto refresh reloads live panels and metrics every 90 s. The search box of
 the Library section filters entries by name, folder or tracker.
 
+### Plex page
+
+With `[plex] url` set (optional), a third page, `plex.html`, reads Plex's own
+API. Plex and seedbox see the media under the same `/media` paths, so every
+film Plex plays is matched to the library entry that holds it.
+
+- **Libraries**: size on disk, films or series and episodes, watched, last
+  scan, unmatched items, missing files, per library and in all (how much a
+  library takes, at a glance), plus what is started and not finished;
+- **Playback**: what plays now, on which player, Direct Play or transcode and
+  the bitrate, next to the disk load at the same moment and qBittorrent's
+  upload; Plex streams are sampled with the system metrics, so the charts
+  show over days whether the disks keep up;
+- **Never watched**: films never played, biggest first, with their seeding
+  status and trackers: the list for the next purge;
+- **Transcoding risks** per player (PS5, Apple TV 4K): AVI/XviD, AV1, TrueHD
+  and DTS (first audio track), PGS/ASS subtitles, Dolby Vision profiles 5 and 7.
+  A NAS that cannot transcode 4K plays those better on the other player.
+  Audio and subtitle tracks are read in the background, once per film;
+- **Recently added** and the **server**: version, update available,
+  maintenance window and tasks, scans running, and with Plex's config folder
+  mounted, the size of its database, metadata and thumbnails.
+
+The token comes from `[plex] token` / `SEEDBOX_PLEX_TOKEN`, or from Plex's
+`Preferences.xml` when its config folder is mounted read-only (`PLEX_CONFIG_DIR`).
+
 ## Deploy (container, remote host)
 
 From your machine, over SSH, with your host details and secrets kept in a
