@@ -65,6 +65,10 @@ class Config:
     transient_dir: str = ""
     # qBittorrent category of cross-seed link torrents (cross-seed linkCategory).
     link_category: str = "cross-seed-link"
+    # A cross-seed match that cannot finish (the missing bytes share a piece with
+    # the video, or lie inside it) and has had no seeder for this many days is
+    # reported as dead, to remove. 0 = off.
+    dead_partial_days: int = 7
 
     # cross-seed database, read-only (search history per tracker). Missing = off.
     cross_seed_db: str = "/cross-seed/cross-seed.db"
@@ -256,6 +260,7 @@ def load(path=None):
     cfg.transient_dir = library.get("transient_dir", cfg.transient_dir).rstrip("/")
     cfg.link_category = data.get("cross_seed", {}).get("link_category", cfg.link_category)
     cfg.cross_seed_db = data.get("cross_seed", {}).get("db", cfg.cross_seed_db)
+    cfg.dead_partial_days = int(data.get("cross_seed", {}).get("dead_partial_days", cfg.dead_partial_days))
 
     qbt = data.get("qbittorrent", {})
     cfg.qbt_url = qbt.get("url", cfg.qbt_url)

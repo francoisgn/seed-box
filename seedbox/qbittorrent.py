@@ -73,6 +73,10 @@ class QbtClient:
     def files(self, torrent_hash):
         return self.get("/api/v2/torrents/files", hash=torrent_hash) or []
 
+    def piece_states(self, torrent_hash):
+        """One state per piece: 0 missing, 1 downloading, 2 verified."""
+        return self.get("/api/v2/torrents/pieceStates", hash=torrent_hash) or []
+
     def maindata(self):
         return self.get("/api/v2/sync/maindata")
 

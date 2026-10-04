@@ -71,7 +71,9 @@ reduced to their domain and merged. The dashboard flags:
 | Episodes twice | same episode number twice in a season folder | by hand |
 | Failed match | cross-seed partial match stopped at 0 %: the data did not verify | recheck, or remove |
 | Stopped | a torrent neither seeds nor downloads | start, recheck |
-| Missing extras | a cross-seed match waits for a `.nfo`/`.jpg` nobody seeds (files stay `.!qB`) | skip them (file priority 0) |
+| Missing extras | a cross-seed match waits for a `.nfo`/`.jpg` nobody seeds (files stay `.!qB`), each on pieces of its own | skip them (file priority 0) |
+| Never finishes | a cross-seed match short of 100 %: the extras it lacks share a piece with the video (skipping them changes nothing), or pieces of the video itself are missing, and no seeder for `dead_partial_days` (7 by default). It seeds nothing | remove them all in one click (link files deleted, library kept), then paste the copied `infoHash:` lines into cross-seed's `blockList` so it does not inject them again |
+| Video differs | a cross-seed match whose video, hardlinked to the library, fails some pieces: the release differs from your file, and finishing it would rewrite the library file through the hardlink | remove it, then block its infohash in cross-seed |
 | Lone film | the only film of a grouping folder: fine while moving, not as a lasting state | move it |
 | Category | torrent not in the category of its folder, cross-seed link without the link category, finished download still in the transient folder | set the matching category, or apply the category folder (qBittorrent moves it) |
 | Outside declared trackers | tracker unknown to Prowlarr (public, one-off) | clean it when done |

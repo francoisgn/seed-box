@@ -101,8 +101,9 @@ class Granularity(unittest.TestCase):
 
 
 class FakeQbt:
-    def __init__(self, torrents, files, trackers=None):
+    def __init__(self, torrents, files, trackers=None, pieces=None):
         self._torrents, self._files, self._trackers = torrents, files, trackers or {}
+        self._pieces = pieces or {}
         self.calls = []
 
     def torrents(self):
@@ -113,6 +114,9 @@ class FakeQbt:
 
     def trackers(self, h):
         return [{"url": u} for u in self._trackers.get(h, [])]
+
+    def piece_states(self, h):
+        return list(self._pieces.get(h, []))
 
     def set_location(self, hashes, location):
         self.calls.append(("move", hashes, location))
@@ -385,6 +389,81 @@ class CrossSeed(unittest.TestCase):
         gone = collect._torrent_record(self.cfg, torrent, keys, [], [{"tracker": "alpha.example", "msg": "HTTP 404"}])
         collect._whole_tracker_404([gone])
         self.assertEqual([(i["code"], i["fixes"]) for i in gone["issues"]], [("tracker_error", [])])
+
+
+class DeadPartials(unittest.TestCase):
+    """Cross-seed matches stuck short of 100 %: what blocks them, from the piece states."""
+
+    NOW = 1_800_000_000
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.cfg = load_cfg([self.tmp.name], os.path.join(self.tmp.name, "out"))
+        self.video = os.path.join(self.tmp.name, "links", "Some.Entry.mkv")
+        touch(self.video, 100)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def record(self, files, pieces, **torrent):
+        base = {
+            "hash": A,
+            "name": "Some.Entry",
+            "state": "stalledDL",
+            "progress": 0.999,
+            "category": "cross-seed-link",
+            "num_complete": 0,
+            "availability": 0.999,
+            "added_on": self.NOW - 30 * 86400,
+        }
+        listed = [(path, dict(f, index=i)) for i, (path, f) in enumerate(files)]
+        return collect._torrent_record(self.cfg, {**base, **torrent}, ["t1.example"], listed, (), pieces, self.NOW)
+
+    def codes(self, record):
+        return [i["code"] for i in record["issues"]]
+
+    def boundary(self):
+        # The .nfo shares the video's last piece: that piece never verifies without it.
+        return [
+            (self.video, {"name": "Some.Entry.mkv", "progress": 0.999, "priority": 1, "piece_range": [0, 9]}),
+            (self.video + ".nfo", {"name": "Some.Entry.nfo", "progress": 0, "priority": 1, "piece_range": [9, 9]}),
+        ]
+
+    def test_extra_sharing_the_last_piece_is_dead(self):
+        record = self.record(self.boundary(), [2] * 9 + [0])
+        self.assertEqual(self.codes(record), ["dead_partial"])
+        self.assertEqual(record["issues"][0]["fixes"], ["remove"])
+        self.assertIn("1 extra file(s) sharing a piece", record["issues"][0]["text"])
+        stopped = self.record(self.boundary(), [2] * 9 + [0], state="stoppedDL")
+        self.assertEqual(self.codes(stopped), ["dead_partial"])  # not "start it"
+
+    def test_recent_or_seeded_is_left_alone(self):
+        pieces = [2] * 9 + [0]
+        self.assertEqual(self.codes(self.record(self.boundary(), pieces, added_on=self.NOW - 86400)), [])
+        self.assertEqual(self.codes(self.record(self.boundary(), pieces, num_complete=2)), [])
+        self.cfg.dead_partial_days = 0
+        self.assertEqual(self.codes(self.record(self.boundary(), pieces)), [])
+
+    def test_extra_on_its_own_piece_can_be_skipped(self):
+        files = [
+            (self.video, {"name": "Some.Entry.mkv", "progress": 1, "priority": 1, "piece_range": [0, 9]}),
+            (self.video + ".nfo", {"name": "Some.Entry.nfo", "progress": 0, "priority": 1, "piece_range": [10, 10]}),
+        ]
+        record = self.record(files, [2] * 10 + [0])
+        self.assertEqual([(i["code"], i["fixes"]) for i in record["issues"]], [("extras", ["skip_extras"])])
+
+    def test_hardlinked_video_that_differs(self):
+        os.link(self.video, self.video + ".lib")
+        files = [(self.video, {"name": "Some.Entry.mkv", "progress": 0.99, "priority": 1, "piece_range": [0, 9]})]
+        pieces = [2, 2, 2, 0, 2, 2, 2, 2, 2, 2]
+        record = self.record(files, pieces, num_complete=2, added_on=self.NOW)
+        self.assertEqual(self.codes(record), ["differing_media"])
+        self.assertIn("1 piece(s) of Some.Entry.mkv", record["issues"][0]["text"])
+
+    def test_new_video_still_downloading(self):
+        files = [(self.video + ".new", {"name": "Other.mkv", "progress": 0.5, "priority": 1, "piece_range": [0, 9]})]
+        record = self.record(files, [2] * 5 + [0] * 5, num_complete=3)
+        self.assertEqual(self.codes(record), [])
 
 
 class OrphanLinks(unittest.TestCase):

@@ -21,6 +21,10 @@ max_depth = 4
 [cross_seed]
 # cross-seed database, read-only (deploy: CROSS_SEED_DIR). Missing file = off.
 # db = "/cross-seed/cross-seed.db"
+# A partial match that cannot finish (what it lacks shares a piece with the
+# video, or lies inside it) and has had no seeder for this many days is reported
+# as never finishing, to remove and block in cross-seed. 0 = off.
+# dead_partial_days = 7
 
 [tmdb]
 # Optional, for release matching (film titles in French, English, original).

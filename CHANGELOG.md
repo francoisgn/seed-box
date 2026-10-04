@@ -1,5 +1,20 @@
 # Changelog
 
+## 2.4.1
+
+- Cross-seed matches that never finish: the extras they lack share a piece with
+  the video (skipping them changes nothing), or pieces of the video are missing,
+  and no seeder for `[cross_seed] dead_partial_days` (7). Flagged "never
+  finishes" among the torrents in error, removable in one click (link files
+  deleted, library kept), with their `infoHash:` lines to copy into cross-seed's
+  `blockList` so they are not injected again.
+- A cross-seed match whose hardlinked video fails some pieces is flagged "video
+  differs": finishing it would rewrite the library file.
+- "Missing extras" (skip them) is offered only when skipping finishes the
+  torrent, and now also shows when the video is short only by the piece it
+  shares with an extra. qBittorrent piece states are read for unfinished
+  torrents.
+
 ## 2.4.0
 
 - Extra trackers: a torrent of a declared tracker that also announces to

@@ -26,6 +26,7 @@ from seedbox.qbittorrent import QbtClient
 INCOMPLETE_SUFFIX = ".!qB"
 STOPPED = ("stoppedDL", "stoppedUP", "pausedDL", "pausedUP")
 DOWNLOADING = ("downloading", "stalledDL", "metaDL", "forcedDL", "queuedDL", "forcedMetaDL")
+CHECKING = ("checkingDL", "checkingUP", "checkingResumeData", "moving")
 TIMELINE_DAYS = 120
 
 
@@ -124,7 +125,47 @@ def _is_media_name(cfg, name):
     return os.path.splitext(name)[1].lower() in cfg.media_ext
 
 
-def _torrent_record(cfg, torrent, keys, files, tracker_errors=()):
+def _overlap(a, b):
+    ra, rb = a.get("piece_range") or (), b.get("piece_range") or ()
+    return len(ra) == 2 and len(rb) == 2 and ra[0] <= rb[1] and rb[0] <= ra[1]
+
+
+def _piece_gaps(cfg, files, pieces):
+    """What the missing pieces mean, from qBittorrent's piece states.
+
+    Returns (stuck, inner). stuck: indexes of missing extras (.nfo, .jpg, sample)
+    that share a piece with a media file: skipping them does not finish the
+    torrent, that piece stays wanted for the media. inner: [(local path, file,
+    count)] of media files missing pieces that no missing extra explains, data
+    really absent or differing. Both empty when the piece states are unknown."""
+    if not pieces:
+        return [], []
+    missing = [f for _, f in files if (f.get("progress") or 0) < 1 and (f.get("priority", 1) or 0) > 0]
+    extras = [f for f in missing if not _is_media_name(cfg, f.get("name", ""))]
+    media = [(path, f) for path, f in files if _is_media_name(cfg, f.get("name", ""))]
+    stuck = [f["index"] for f in extras if any(_overlap(f, m) for _, m in media)]
+    covered = set()
+    for f in extras:
+        r = f.get("piece_range") or ()
+        if len(r) == 2:
+            covered.update(range(r[0], r[1] + 1))
+    inner = []
+    for path, f in media:
+        r = f.get("piece_range") or ()
+        if (f.get("progress") or 0) >= 1 or len(r) != 2:
+            continue
+        count = sum(1 for p in range(r[0], min(r[1] + 1, len(pieces))) if pieces[p] != 2 and p not in covered)
+        if count:
+            inner.append((path, f, count))
+    return stuck, inner
+
+
+def _hardlinked(path):
+    st = _stat_any(path)
+    return bool(st) and st.st_nlink > 1
+
+
+def _torrent_record(cfg, torrent, keys, files, tracker_errors=(), pieces=None, now=None):
     state = torrent.get("state", "")
     progress = torrent.get("progress") or 0
     left = torrent.get("amount_left") or 0
@@ -132,6 +173,10 @@ def _torrent_record(cfg, torrent, keys, files, tracker_errors=()):
     missing = [f for _, f in files if (f.get("progress") or 0) < 1 and (f.get("priority", 1) or 0) > 0]
     extras = [f["index"] for f in missing if not _is_media_name(cfg, f.get("name", ""))]
     media_missing = any(_is_media_name(cfg, f.get("name", "")) for f in missing)
+    stuck, inner = _piece_gaps(cfg, files, pieces)
+    if pieces:
+        # A media file a few bytes short only because an extra shares its last piece is not missing data.
+        media_missing = bool(inner)
     local_content = map_path(cfg, torrent.get("content_path") or "")
     issues = []
     link = torrent.get("category") == cfg.link_category or _in_link_dir(cfg, local_content)
@@ -169,7 +214,7 @@ def _torrent_record(cfg, torrent, keys, files, tracker_errors=()):
             issues.append(
                 {"code": "tracker_error", "text": f"{err['tracker']}: {err['msg'] or 'not working'}", "fixes": []}
             )
-    if state in DOWNLOADING and extras and not media_missing:
+    if state in DOWNLOADING and extras and not media_missing and not stuck:
         issues.append(
             {
                 "code": "extras",
@@ -177,6 +222,47 @@ def _torrent_record(cfg, torrent, keys, files, tracker_errors=()):
                 "fixes": ["skip_extras"],
             }
         )
+    # Cross-seed matches that can only end badly: the link data differs from the
+    # release, or the bytes it lacks can come from no one.
+    differing = [(path, f, n) for path, f, n in inner if (f.get("progress") or 0) > 0 and _hardlinked(path)]
+    seeders = torrent.get("num_complete") or 0
+    availability = torrent.get("availability", -1)
+    added = torrent.get("added_on") or 0
+    days = ((now or time.time()) - added) / 86400 if added else 0
+    blocked = None
+    if link and progress < 1 and differing:
+        path, f, n = differing[0]
+        blocked = {
+            "code": "differing_media",
+            "text": f"{n} piece(s) of {os.path.basename(path)} differ from this release: finishing it would rewrite "
+            "the library file through its hardlink. Remove it and block its infohash in cross-seed",
+            "fixes": ["remove"],
+        }
+    elif (
+        link
+        and progress < 1
+        and cfg.dead_partial_days > 0
+        and (state in DOWNLOADING or state in STOPPED)
+        and (stuck or inner)
+        and not seeders
+        and (availability is None or availability < 1)
+        and days >= cfg.dead_partial_days
+    ):
+        what = (
+            f"{sum(n for _, _, n in inner)} piece(s) inside the video"
+            if inner
+            else f"{len(stuck)} extra file(s) sharing a piece with the video"
+        )
+        blocked = {
+            "code": "dead_partial",
+            "text": f"never finishes: {what} missing, no seeder after {int(days)} days. It seeds nothing: "
+            "remove it and block its infohash in cross-seed",
+            "fixes": ["remove"],
+        }
+    if blocked:
+        # Start, recheck or skipping extras would not get it anywhere.
+        issues = [i for i in issues if i["code"] not in ("stopped", "extras")]
+        issues.append(blocked)
     return {
         "hash": torrent.get("hash", ""),
         "name": torrent.get("name", ""),
@@ -211,7 +297,13 @@ def correlate(cfg, client, entries, inode_index, progress=lambda msg: None):
         progress(f"Correlating torrents {position}/{len(torrents)}")
         keys, tracker_errors, every = _torrent_trackers(client, torrent, cfg.tracker_aliases)
         files = _torrent_files(cfg, client, torrent)
-        record = _torrent_record(cfg, torrent, keys, files, tracker_errors)
+        pieces = None
+        if (torrent.get("progress") or 0) < 1 and torrent.get("state") not in CHECKING:
+            try:
+                pieces = client.piece_states(torrent["hash"])
+            except ApiError:
+                pieces = None
+        record = _torrent_record(cfg, torrent, keys, files, tracker_errors, pieces)
         record["all_trackers"] = every
         records.append(record)
 
@@ -710,7 +802,17 @@ def run(cfg, log, progress=lambda msg: None):
         r["hash"]
         for r in records
         if any(
-            i["code"] in ("unregistered", "tracker_error", "error", "missingFiles", "failed_match") for i in r["issues"]
+            i["code"]
+            in (
+                "unregistered",
+                "tracker_error",
+                "error",
+                "missingFiles",
+                "failed_match",
+                "dead_partial",
+                "differing_media",
+            )
+            for i in r["issues"]
         )
     ]
     dup_entries = {i for d in duplicates for i in d["entries"]}

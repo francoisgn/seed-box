@@ -34,6 +34,9 @@ class FakeQbt:
     def files(self, h):
         return [{"name": n} for n in self._files.get(h, [])]
 
+    def piece_states(self, h):
+        return []
+
 
 class TrackerKeys(unittest.TestCase):
     def test_domain(self):

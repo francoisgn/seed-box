@@ -687,7 +687,7 @@ function renderUndeclaredTile() {
 }
 function renderErrorsTile() {
   var box = $('k-errors'), hashes = S.error_torrents || [];
-  kpi(box, 'Torrents in error', 'warn', hashes.length, 'torrents', 'Deleted by the tracker, tracker errors, failed matches, missing files');
+  kpi(box, 'Torrents in error', 'warn', hashes.length, 'torrents', 'Deleted by the tracker, tracker errors, failed matches, missing files, cross-seed matches that never finish');
   if (hashes.length) box.querySelector('.value').style.color = C.ko;
   // Deleted by the tracker: dead weight, announces and disk for nothing.
   var gone = hashes.filter(function (h) { return BYHASH[h] && BYHASH[h].issues.some(function (i) { return i.code === 'unregistered'; }); });
@@ -696,6 +696,22 @@ function renderErrorsTile() {
       confirmAct('remove', gone, 'Remove ' + gone.length + ' torrent(s) deleted by their tracker?',
         'They no longer exist on the tracker (unregistered, 404…). Files are deleted only if they sit in the transient folder.');
     }}, [icon('remove', 'sm'), 'Remove ' + gone.length + ' deleted by tracker'])]));
+  }
+  // Cross-seed matches that never finish: removed with their link files, then
+  // blocked in cross-seed, which would otherwise inject them again.
+  var dead = hashes.filter(function (h) { return BYHASH[h] && BYHASH[h].issues.some(function (i) { return i.code === 'dead_partial' || i.code === 'differing_media'; }); });
+  if (dead.length) {
+    var lines = dead.map(function (h) { return '"infoHash:' + h + '", // ' + BYHASH[h].name.replace(/[\r\n]+/g, ' '); }).join('\n');
+    var code = el('code', {text: lines});
+    box.appendChild(el('div', {'class': 'cell-flex', style: 'flex-wrap:wrap;gap:6px'}, [
+      el('button', {'class': 'btn sm danger', type: 'button', onclick: function () {
+        confirmAct('remove', dead, 'Remove ' + dead.length + ' cross-seed match(es) that never finish?',
+          'The bytes they lack can come from no one, or their video differs from the library file they link to. They seed nothing. ' +
+          'The library file is never touched. Then add their infohashes to cross-seed\'s blockList.', null, true);
+      }}, [icon('remove', 'sm'), 'Remove ' + dead.length + ' that never finish']),
+      el('button', {'class': 'btn sm', type: 'button', title: 'Lines for blockList in cross-seed config.js', onclick: function () { copyText(lines, code); }},
+        [icon('copy', 'sm'), 'Copy blockList lines'])]));
+    box.appendChild(el('div', {'class': 'cmd', style: 'max-height:120px;overflow:auto;align-items:flex-start'}, [code]));
   }
   box.appendChild(dropList(hashes.map(function (h) { return BYHASH[h]; }).filter(Boolean), function (t) {
     var issue = t.issues[0] || {};
