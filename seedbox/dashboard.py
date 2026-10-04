@@ -72,6 +72,11 @@ def _link(href, label, path, active=False, extra=""):
     )
 
 
+# Sections in the mobile bottom bar; the rest and the other pages open from "More".
+BAR_SECTIONS = 4
+MORE = "M5 12h.01M12 12h.01M19 12h.01"
+
+
 def _nav(page, upload=False):
     sections = PAGES[page]["sections"]
     links = []
@@ -80,9 +85,17 @@ def _nav(page, upload=False):
         # later, it would push the links below it while they are being clicked.
         extra = (' id="nav-upload"' + ("" if upload else " hidden")) if key == "upload" else ""
         links.append(_link(f"#{key}", label, path, key == sections[0], extra))
-    links.append('<hr class="rail-sep">')
-    links += [_link(href, label, path) for href, label, path in OTHER[page]]
-    return "\n  ".join(links)
+    more = (
+        links[BAR_SECTIONS:]
+        + ['<hr class="rail-sep">']
+        + [_link(href, label, path) for href, label, path in OTHER[page]]
+    )
+    button = (
+        '<button class="rail-more-btn" type="button" aria-expanded="false" aria-controls="rail-more"><span class="pill">'
+        f'<svg class="icon" viewBox="0 0 24 24" aria-hidden="true"><path d="{MORE}"/></svg></span>More</button>'
+    )
+    # Desktop: the "More" box is display: contents, its links sit in the rail like the others.
+    return "\n  ".join(links[:BAR_SECTIONS] + [button, '<div class="rail-more" id="rail-more">'] + more + ["</div>"])
 
 
 def _range_chips():

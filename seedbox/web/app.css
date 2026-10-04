@@ -67,6 +67,8 @@ a { color: var(--primary); }
 .rail a.active { color: var(--t1); }
 .rail a.active .pill { background: var(--primary-24); color: var(--primary); }
 .rail a.active .icon { fill: var(--primary-24); }
+.rail-more { display: contents; }
+.rail-more-btn { display: none; }
 
 /* Top app bar */
 .topbar {
@@ -293,8 +295,23 @@ dialog .form-grid input.missing { border-color: var(--ko); }
   .rail { inset: auto 0 0 0; width: auto; height: 72px; flex-direction: row; justify-content: space-around;
     border-right: 0; border-top: 1px solid var(--line); padding: 8px 0; }
   .rail .flag { display: none; }
-  .rail a { width: auto; flex: 1; min-width: 0; font-size: 11px; }
+  .rail a { width: auto; flex: 1; min-width: 0; font-size: 11px; line-height: 13px; text-align: center; }
   .rail a .pill { width: 48px; }
+  /* Bottom bar: the first sections and "More", which slides a sheet up with the rest. */
+  .rail-more-btn { display: flex; flex-direction: column; align-items: center; gap: 4px; flex: 1; min-width: 0;
+    background: none; border: 0; padding: 0; font: inherit; font-size: 11px; font-weight: 500; line-height: 16px;
+    color: var(--t2); cursor: pointer; }
+  .rail-more-btn .pill { width: 48px; height: 32px; border-radius: 16px; display: grid; place-items: center; }
+  .rail-more-btn:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+  .rail.open .rail-more-btn .pill, .rail:has(.rail-more a.active) .rail-more-btn .pill { background: var(--primary-24); color: var(--primary); }
+  .rail:has(.rail-more a.active) .rail-more-btn { color: var(--t1); }
+  .rail-more { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px 8px; position: fixed; left: 8px; right: 8px;
+    bottom: 80px; padding: 16px 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5); visibility: hidden; opacity: 0; transform: translateY(16px);
+    transition: opacity 0.18s, transform 0.18s, visibility 0s 0.18s; }
+  .rail.open .rail-more { visibility: visible; opacity: 1; transform: none; transition: opacity 0.18s, transform 0.18s; }
+  .rail-more a { width: auto; flex: none; }
+  .rail-more .rail-sep { grid-column: 1 / -1; width: auto; margin: 0 8px; }
   .topbar { margin-left: 0; padding: 0 16px; gap: 8px; }
   .search { min-width: 0; padding: 0 12px; }
   .top-actions { gap: 4px; }

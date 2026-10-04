@@ -10,6 +10,10 @@
   declared trackers are read from Prowlarr, a torrent keeps at least one).
 - Collection: the tracker list is asked for only for torrents with more than
   one tracker (`trackers_count`) or none working.
+- Mobile navigation: the bottom bar keeps the first four sections and a "More"
+  button; the other sections and pages slide up in a sheet (closed by a pick, a
+  tap elsewhere or Escape). "More" is highlighted when the current section is in
+  it. The desktop rail is unchanged.
 
 ## 2.3.0
 

@@ -1700,6 +1700,14 @@ function wireNav() {
     });
   }, {rootMargin: '-80px 0px -60% 0px'});
   document.querySelectorAll('main section[id]').forEach(function (s) { obs.observe(s); });
+  // Mobile "More": opens the sheet of the other sections and pages; a pick, a tap elsewhere or Escape closes it.
+  var rail = document.querySelector('.rail'), more = rail && rail.querySelector('.rail-more-btn');
+  if (!more) return;
+  var openMore = function (on) { rail.classList.toggle('open', on); more.setAttribute('aria-expanded', on ? 'true' : 'false'); };
+  more.addEventListener('click', function (e) { e.stopPropagation(); openMore(!rail.classList.contains('open')); });
+  rail.querySelector('.rail-more').addEventListener('click', function (e) { if (e.target.closest('a')) openMore(false); });
+  document.addEventListener('click', function (e) { if (!rail.contains(e.target)) openMore(false); });
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape') openMore(false); });
 }
 function collectNow() {
   if (!LIVE || !D.actions) { toast(LIVE ? 'Actions are disabled: set [service] actions = true.' : 'Needs seedbox run.'); return; }
