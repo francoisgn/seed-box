@@ -2,10 +2,13 @@
 
 Every action goes through qBittorrent (seedbox mounts the media read-only):
 move (setLocation), recheck, start, skip missing extras (file priority 0),
-remove a torrent. Requests are validated here, whatever the page sent:
+strip the trackers Prowlarr does not know from a torrent that has one it
+knows, remove a torrent. Requests are validated here, whatever the page sent:
 
 - move: the destination must be an existing folder under a library root,
   outside the cross-seed link folders;
+- strip trackers: the declared trackers are read from Prowlarr at that time,
+  and a torrent must keep at least one;
 - remove with files: only for cross-seed link torrents whose content no other
   torrent uses, so a library file is never deleted from the dashboard.
 
@@ -23,10 +26,12 @@ import threading
 import time
 import uuid
 
+from seedbox import prowlarr
+from seedbox import trackers as trk
 from seedbox.api import ApiError
 from seedbox.config import map_path, unmap_path
 
-ACTIONS = ("move", "recheck", "start", "skip_extras", "remove", "set_category", "apply_category")
+ACTIONS = ("move", "recheck", "start", "skip_extras", "strip_trackers", "remove", "set_category", "apply_category")
 HASH = re.compile(r"^[0-9a-f]{40}$|^[0-9a-f]{64}$")
 MAX_HASHES = 500
 KEEP_DONE_S = 7 * 86400
@@ -101,8 +106,35 @@ def _is_transient(cfg, torrent):
     return local == cfg.transient_dir or local.startswith(cfg.transient_dir + "/")
 
 
-def run(cfg, client, request):
-    """Validate and execute one action request. Returns the jobs created."""
+def _declared(cfg):
+    """Tracker keys Prowlarr knows."""
+    if not cfg.prowlarr_enabled:
+        raise ActionError("no Prowlarr configured: the declared trackers are unknown")
+    found = prowlarr.indexers(prowlarr.ProwlarrClient(cfg.prowlarr_url, cfg.prowlarr_api_key), cfg.tracker_aliases)
+    if not found:
+        raise ActionError("Prowlarr lists no indexer: the declared trackers are unknown")
+    return set(found)
+
+
+def _undeclared_urls(cfg, client, torrent, declared):
+    """Announce URLs of a torrent that no declared tracker owns."""
+    urls, kept = [], 0
+    for item in client.trackers(torrent["hash"]):
+        key = trk.key_for_url(item.get("url", ""), cfg.tracker_aliases)
+        if not key:
+            continue
+        if key in declared:
+            kept += 1
+        else:
+            urls.append(item["url"])
+    if urls and not kept:
+        raise ActionError(f"{torrent['name']}: no declared tracker, remove the torrent instead")
+    return urls
+
+
+def run(cfg, client, request, declared=None):
+    """Validate and execute one action request. Returns the jobs created.
+    declared: tracker keys Prowlarr knows (read from it when needed and None)."""
     if not cfg.actions:
         raise ActionError("actions are disabled ([service] actions = true to enable)")
     action = request.get("action")
@@ -120,7 +152,7 @@ def run(cfg, client, request):
     if missing:
         raise ActionError(f"{len(missing)} torrent(s) no longer in qBittorrent, refresh the page")
 
-    target = ""
+    target, stripped = "", {}
     if action == "move":
         target = _check_destination(cfg, str(request.get("location") or ""))
         client.set_location(hashes, target)
@@ -139,6 +171,13 @@ def run(cfg, client, request):
             ]
             if ids:
                 client.file_priority(h, ids, 0)
+    elif action == "strip_trackers":
+        declared = _declared(cfg) if declared is None else declared
+        plan = {h: _undeclared_urls(cfg, client, live[h], declared) for h in hashes}
+        for h, urls in plan.items():
+            if urls:
+                client.remove_trackers(h, urls)
+        stripped = {h: len(urls) for h, urls in plan.items()}
     elif action in ("set_category", "apply_category"):
         category = str(request.get("category") or "")
         if category and category not in client.categories():
@@ -178,9 +217,9 @@ def run(cfg, client, request):
             "hash": h,
             "name": live[h].get("name", ""),
             "from": live[h].get("save_path", ""),
-            "target": target,
+            "target": f"{stripped[h]} tracker(s)" if action == "strip_trackers" else target,
             "submitted": now,
-            "status": "done" if action == "skip_extras" else "pending",
+            "status": "done" if action in ("skip_extras", "strip_trackers") else "pending",
         }
         for h in hashes
     ]

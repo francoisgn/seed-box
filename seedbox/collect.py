@@ -42,25 +42,28 @@ TRACKER_NOT_WORKING = 4
 
 
 def _torrent_trackers(client, torrent, aliases):
-    """(tracker keys, messages of trackers not working). The working tracker is in
-    the torrent already; the list is asked for only when none works."""
+    """(tracker keys, messages of trackers not working, every tracker key). The
+    working tracker is in the torrent already; the list is asked for only when
+    none works or the torrent has several trackers (extras to strip?)."""
     key = trk.key_for_url(torrent.get("tracker", ""), aliases)
-    if key:
-        return [key], []
+    if key and (torrent.get("trackers_count") or 1) <= 1:
+        return [key], [], [key]
     keys, errors = [], []
     try:
         items = client.trackers(torrent["hash"])
     except ApiError:
         items = []
     for item in items:
-        key = trk.key_for_url(item.get("url", ""), aliases)
-        if not key:
+        other = trk.key_for_url(item.get("url", ""), aliases)
+        if not other:
             continue
-        if key not in keys:
-            keys.append(key)
+        if other not in keys:
+            keys.append(other)
         if item.get("status") == TRACKER_NOT_WORKING:
-            errors.append({"tracker": key, "msg": (item.get("msg") or "").strip()})
-    return keys, errors
+            errors.append({"tracker": other, "msg": (item.get("msg") or "").strip()})
+    if key:
+        return [key], [], [key] + [k for k in keys if k != key]
+    return keys, errors, keys
 
 
 def _stat_any(path):
@@ -206,9 +209,10 @@ def correlate(cfg, client, entries, inode_index, progress=lambda msg: None):
     torrents = client.torrents()
     for position, torrent in enumerate(torrents, 1):
         progress(f"Correlating torrents {position}/{len(torrents)}")
-        keys, tracker_errors = _torrent_trackers(client, torrent, cfg.tracker_aliases)
+        keys, tracker_errors, every = _torrent_trackers(client, torrent, cfg.tracker_aliases)
         files = _torrent_files(cfg, client, torrent)
         record = _torrent_record(cfg, torrent, keys, files, tracker_errors)
+        record["all_trackers"] = every
         records.append(record)
 
         targets, found = set(), 0
@@ -666,8 +670,14 @@ def run(cfg, log, progress=lambda msg: None):
             warn(f"tracker {row['name']} is failing in Prowlarr")
 
     # Torrents on trackers Prowlarr does not know: public or one-off sharing.
+    # Extra trackers on a declared torrent (public announces a .torrent ships
+    # with): they leak the torrent and the IP outside the private tracker.
     for r in records:
         r["declared"] = not indexers or not r["tracker"] or r["tracker"] in indexers
+        every = r.pop("all_trackers", [])
+        r["extra_trackers"] = (
+            [k for k in every if k not in indexers] if indexers and any(k in indexers for k in every) else []
+        )
     try:
         categories = client.categories()
     except ApiError as exc:
@@ -755,6 +765,7 @@ def run(cfg, log, progress=lambda msg: None):
         "cross_seed": {"indexers": xs["indexers"]} if xs else None,
         "categories": category_check(cfg, records, categories),
         "undeclared": [r["hash"] for r in records if not r["declared"]],
+        "extra_trackers": [r["hash"] for r in records if r["extra_trackers"]],
         "transient_qbt": unmap_path(cfg, cfg.transient_dir) if cfg.transient_dir else "",
         "torrents": records,
         "duplicates": duplicates,

@@ -199,7 +199,7 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
     GET  /api/metrics  host and qBittorrent samples (?hours=48)
     GET  /api/collect  state of the collection
     POST /api/collect  collect now
-    POST /api/action   move, recheck, start, skip extras, remove ([service] actions)
+    POST /api/action   move, recheck, start, skip extras, strip trackers, remove ([service] actions)
     POST /api/match    release matching: search, verify, apply ([service] actions)
     POST /api/create   create a .torrent for a tracker, then seed it ([service] actions)
     GET  /upload       moved: the Upload section of library.html

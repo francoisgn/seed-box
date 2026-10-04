@@ -416,7 +416,7 @@ function confirmDialog(title, body, okLabel, checkbox, checked) {
 }
 
 var ACTION_TEXT = {inject: 'Inject release', rename: 'Rename file', create: 'Create .torrent', seed: 'Seed created torrent', upload: 'Upload to tracker',
-  move: 'Move', recheck: 'Recheck', start: 'Start', skip_extras: 'Skip missing extras', remove: 'Remove',
+  move: 'Move', recheck: 'Recheck', start: 'Start', skip_extras: 'Skip missing extras', strip_trackers: 'Strip extra trackers', remove: 'Remove',
   set_category: 'Set category', apply_category: 'Apply category folder'
 };
 function isTransient(t) { return !!(D.transient_qbt && t && (t.content_path + '/').indexOf(D.transient_qbt + '/') === 0); }
@@ -646,17 +646,38 @@ function renderCategoriesTile() {
   }));
 }
 function duration(sec) { return sec >= 86400 ? fix(sec / 86400, 1) + ' d' : fix(sec / 3600, 1) + ' h'; }
+// Trackers Prowlarr does not know: torrents only there (public or one-off
+// sharing, removed once done) and extra announces on a declared torrent
+// (public trackers a .torrent ships with, stripped: the torrent stays).
 function renderUndeclaredTile() {
   var box = $('k-undeclared'), list = (D.undeclared || []).map(function (h) { return BYHASH[h]; }).filter(Boolean);
-  kpi(box, 'Outside declared trackers', 'outside', list.length, 'torrents', 'Trackers Prowlarr does not know: public or one-off sharing. Clean them once done.');
-  var done = list.filter(function (t) { return t.progress >= 1; });
+  var extra = (D.extra_trackers || []).map(function (h) { return BYHASH[h]; }).filter(Boolean);
+  kpi(box, 'Undeclared trackers', 'outside', list.length + extra.length, 'torrents',
+    list.length + ' outside declared trackers · ' + extra.length + ' with extra trackers. Trackers Prowlarr does not know: clean them.');
+  if (list.length + extra.length) box.querySelector('.value').style.color = C.warn;
+  var done = list.filter(function (t) { return t.progress >= 1; }), buttons = [];
+  if (extra.length) {
+    buttons.push(el('button', {'class': 'btn sm', type: 'button', onclick: function () {
+      confirmAct('strip_trackers', extra.map(function (t) { return t.hash; }), 'Strip the extra trackers of ' + extra.length + ' torrent(s)?',
+        'Removes the announces Prowlarr does not know (public trackers shipped in the .torrent). The torrents keep seeding on their declared tracker.');
+    }}, [icon('check', 'sm'), 'Strip ' + extra.length + ' extra']));
+  }
   if (done.length) {
-    box.appendChild(el('div', {}, [el('button', {'class': 'btn sm danger', type: 'button', onclick: function () {
+    buttons.push(el('button', {'class': 'btn sm danger', type: 'button', onclick: function () {
       confirmAct('remove', done.map(function (t) { return t.hash; }), 'Clean ' + done.length + ' finished torrent(s)?',
         'Removes them from qBittorrent. Files are deleted only if they sit in the transient folder.');
-    }}, [icon('remove', 'sm'), 'Clean ' + done.length + ' finished'])]));
+    }}, [icon('remove', 'sm'), 'Clean ' + done.length + ' finished']));
   }
-  box.appendChild(dropList(list, function (t) {
+  if (buttons.length) box.appendChild(el('div', {}, buttons));
+  box.appendChild(dropList(extra.concat(list), function (t) {
+    if (t.extra_trackers && t.extra_trackers.length) {
+      return el('div', {'class': 'item'}, [trackerChip(t.tracker),
+        el('span', {'class': 'badge warn', title: t.extra_trackers.join('\n'), text: '+' + t.extra_trackers.length + ' trackers'}),
+        el('span', {'class': 'name', title: t.name + '\nExtra: ' + t.extra_trackers.join(', '), text: t.name}),
+        el('button', {'class': 'btn sm', type: 'button', title: 'Strip extra trackers', 'aria-label': 'Strip extra trackers', onclick: function () {
+          act('strip_trackers', [t.hash]);
+        }}, [icon('check', 'sm')])]);
+    }
     return el('div', {'class': 'item'}, [trackerChip(t.tracker), el('span', {'class': 'name', title: t.name, text: t.name}),
       el('span', {'class': 'faint small', text: 'ratio ' + fix(t.ratio, 2) + ' · ' + duration(t.seeding_time)}),
       el('button', {'class': 'btn sm danger', type: 'button', title: 'Remove', 'aria-label': 'Remove', onclick: function () {

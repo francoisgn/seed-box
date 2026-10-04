@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.4.0
+
+- Extra trackers: a torrent of a declared tracker that also announces to
+  trackers Prowlarr does not know (YggReborn `.torrent` files ship about 25
+  public trackers) is flagged. The main page tile, now "Undeclared trackers",
+  lists these torrents next to the ones outside declared trackers, with a strip
+  button per torrent and for all of them (`strip_trackers` action: the
+  declared trackers are read from Prowlarr, a torrent keeps at least one).
+- Collection: the tracker list is asked for only for torrents with more than
+  one tracker (`trackers_count`) or none working.
+
 ## 2.3.0
 
 - Plex page (`plex.html`, `[plex] url`): libraries (size on disk, items,

@@ -336,6 +336,32 @@ class CrossSeed(unittest.TestCase):
             with self.assertRaises(actions.ActionError):
                 actions.run(self.cfg, qbt, {"action": "move", "hashes": [A], "location": location})
 
+    def test_extra_trackers(self):
+        ygg = "https://tracker.ygg.example/key/announce"
+        public = ["udp://tracker.opentrackr.org:1337/announce", "udp://93.158.213.92:1337/announce"]
+        torrent = {"hash": A, "name": "Bumblebee.mkv", "state": "stalledUP", "tracker": ygg, "trackers_count": 3}
+        lone = {"hash": B, "name": "Public.mkv", "state": "stalledUP", "tracker": public[0], "trackers_count": 1}
+        qbt = FakeQbt([torrent, lone], {}, {A: ["** [DHT] **", ygg] + public, B: public[:1]})
+        removed = []
+        qbt.remove_trackers = lambda h, urls: removed.append((h, urls))
+        keys, errors, every = collect._torrent_trackers(qbt, torrent, {})
+        self.assertEqual(
+            (keys, errors, every), (["ygg.example"], [], ["ygg.example", "opentrackr.org", "93.158.213.92"])
+        )
+        # One tracker: the list is not asked for.
+        qbt.trackers = lambda h: self.fail("list asked for a single-tracker torrent")
+        self.assertEqual(collect._torrent_trackers(qbt, dict(torrent, trackers_count=1), {})[2], ["ygg.example"])
+        del qbt.trackers
+
+        cfg = load_cfg([self.films], os.path.join(self.tmp.name, "out"), actions=True)
+        jobs = actions.run(cfg, qbt, {"action": "strip_trackers", "hashes": [A]}, declared={"ygg.example"})
+        self.assertEqual(removed, [(A, public)])
+        self.assertEqual((jobs[0]["status"], jobs[0]["target"]), ("done", "2 tracker(s)"))
+        # Stripping every tracker would orphan the torrent: removing it is the way.
+        with self.assertRaises(actions.ActionError):
+            actions.run(cfg, qbt, {"action": "strip_trackers", "hashes": [B]}, declared={"ygg.example"})
+        self.assertEqual(len(removed), 1)
+
     def test_unregistered(self):
         torrent = {"hash": A, "name": "Dupe", "state": "stalledUP", "tracker": ""}
         qbt = FakeQbt([torrent], {})
@@ -343,7 +369,7 @@ class CrossSeed(unittest.TestCase):
             {"url": "** [DHT] **", "status": 2, "msg": ""},
             {"url": "https://t.alpha.example/announce", "status": 4, "msg": "Unregistered torrent"},
         ]
-        keys, errors = collect._torrent_trackers(qbt, torrent, {})
+        keys, errors, _ = collect._torrent_trackers(qbt, torrent, {})
         self.assertEqual(keys, ["alpha.example"])
         record = collect._torrent_record(self.cfg, torrent, keys, [], errors)
         self.assertEqual([i["code"] for i in record["issues"]], ["unregistered"])

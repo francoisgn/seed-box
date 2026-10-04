@@ -117,6 +117,9 @@ class QbtClient:
             {"hashes": "|".join(hashes), "deleteFiles": "true" if delete_files else "false"},
         )
 
+    def remove_trackers(self, torrent_hash, urls):
+        self.post("/api/v2/torrents/removeTrackers", {"hash": torrent_hash, "urls": "|".join(urls)})
+
     def set_category(self, hashes, category):
         self.post("/api/v2/torrents/setCategory", {"hashes": "|".join(hashes), "category": category})
 
