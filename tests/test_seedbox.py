@@ -104,6 +104,20 @@ class ConfigLoading(unittest.TestCase):
         ):
             config.load()
 
+    def test_tracker_colors(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            conf = os.path.join(tmp, "seedbox.toml")
+            with open(conf, "w") as handle:
+                handle.write(
+                    '[library]\nroots = ["/a"]\n[trackers.colors]\n"G.example" = "Purple"\n"h.example" = "#00AA11"\n'
+                )
+            with mock.patch.dict(os.environ, {}, clear=True):
+                self.assertEqual(config.load(conf).tracker_colors, {"g.example": "purple", "h.example": "#00aa11"})
+            with open(conf, "w") as handle:
+                handle.write('[library]\nroots = ["/a"]\n[trackers.colors]\n"g.example" = "violet"\n')
+            with mock.patch.dict(os.environ, {}, clear=True), self.assertRaises(config.ConfigError):
+                config.load(conf)
+
 
 class QbtLogin(unittest.TestCase):
     """Login answers of old ("200 Ok." / "200 Fails.") and recent (204 / 401) qBittorrent."""
@@ -456,7 +470,7 @@ class Ratios(unittest.TestCase):
         ]
         rows = collect.ratio_table(records, {"a.example", "b.example"}, {"a.example": "Alpha", "b.example": "Beta"})
         self.assertEqual([(r["name"], r["up"], r["down"], r["torrents"]) for r in rows],
-                         [("Alpha", 40, 10, 2), ("Beta", 0, 0, 0), ("Other trackers", 6, 5, 2)])  # fmt: skip
+                         [("Alpha", 40, 10, 2), ("Beta", 0, 0, 0)])  # fmt: skip
 
     def test_upload_windows(self):
         day = report.DAY

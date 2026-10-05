@@ -9,6 +9,8 @@ var LIVE = location.protocol !== 'file:';
 var GIB = Math.pow(1024, 3), TIB = Math.pow(1024, 4);
 // Categorical dark steps, fixed order; a tracker keeps its slot whatever the filters.
 var SLOTS = ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#9085e9', '#e66767', '#008300'];
+// Names of the slots for [trackers.colors] (PALETTE in config.py, same order).
+var SLOT_NAMES = ['blue', 'orange', 'green', 'amber', 'pink', 'purple', 'red', 'darkgreen'];
 var C = {ok: '#81c995', warn: '#fde293', ko: '#f28b82', primary: '#8ab4f8', neutral: 'rgba(255,255,255,0.38)'};
 // Status colour of a value against thresholds, worst first: [[limit, colour], ...], else the last colour.
 function level(v, steps, last) { for (var i = 0; i < steps.length; i++) if (v < steps[i][0]) return steps[i][1]; return last; }
@@ -149,14 +151,20 @@ function toast(msg) {
 // ---------- shared lookups
 // One colour per tracker, the same in every chart, chip and filter: declared
 // trackers take the slots in Prowlarr order (id), so adding one never
-// recolours the others; trackers outside Prowlarr share the neutral grey.
+// recolours the others; [trackers.colors] overrides a slot (palette name or
+// #rrggbb); trackers outside Prowlarr share the neutral grey.
 var TRACKERS = D.trackers.slice().sort(function (a, b) {
   if (a.in_prowlarr !== b.in_prowlarr) return a.in_prowlarr ? -1 : 1;
   var x = a.id === undefined ? Infinity : a.id, y = b.id === undefined ? Infinity : b.id;
   return x !== y ? x - y : a.key < b.key ? -1 : 1;
 });
 var TCOLOR = {}, TNAME = {};
-TRACKERS.forEach(function (t, i) { TCOLOR[t.key] = t.in_prowlarr ? SLOTS[i % SLOTS.length] : C.neutral; TNAME[t.key] = t.name; });
+function trackerColor(t, i) {
+  if (!t.in_prowlarr) return C.neutral;
+  if (t.color) return SLOT_NAMES.indexOf(t.color) >= 0 ? SLOTS[SLOT_NAMES.indexOf(t.color)] : t.color;
+  return SLOTS[i % SLOTS.length];
+}
+TRACKERS.forEach(function (t, i) { TCOLOR[t.key] = trackerColor(t, i); TNAME[t.key] = t.name; });
 var BYHASH = {};
 D.torrents.forEach(function (t) { BYHASH[t.hash] = t; });
 var S = D.summary;
@@ -596,14 +604,20 @@ function renderOverview() {
   });
 }
 
-// One tile per declared tracker (Prowlarr / cross-seed) plus the other trackers:
-// ratio of the torrents now in qBittorrent, their volumes, upload over 7 and 30 days.
+// One tile per declared tracker (Prowlarr / cross-seed), in colour order, on one
+// row whatever their number: ratio of the torrents now in qBittorrent, their
+// volumes, upload over 7 and 30 days.
 function renderRatios() {
-  document.querySelectorAll('.ratio-tile').forEach(function (n) { n.remove(); });
-  var slot = $('ratio-slot'), day = function (iso) { return new Date(iso).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}); };
-  (D.ratios || []).forEach(function (r) {
-    var box = el('div', {'class': 'card kpi c3 ratio-tile'});
-    slot.parentNode.insertBefore(box, slot);
+  var row = $('ratio-row'), day = function (iso) { return new Date(iso).toLocaleDateString(undefined, {day: 'numeric', month: 'short'}); };
+  var order = TRACKERS.map(function (t) { return t.key; });
+  var ratios = (D.ratios || []).filter(function (r) { return r.key !== 'other'; }).sort(function (a, b) {
+    var x = order.indexOf(a.key), y = order.indexOf(b.key);
+    return (x < 0 ? Infinity : x) - (y < 0 ? Infinity : y);
+  });
+  clear(row); row.style.setProperty('--n', ratios.length);
+  ratios.forEach(function (r) {
+    var box = el('div', {'class': 'card kpi ratio-tile'});
+    row.appendChild(box);
     var ratio = r.down ? fix(r.up / r.down, 2) : r.up ? '∞' : '—';
     var win = [7, 30].map(function (d) {
       var up = r['up_' + d + 'd'], since = r['up_' + d + 'd_since'];
@@ -611,11 +625,11 @@ function renderRatios() {
       var short = since && (Date.now() - new Date(since).getTime()) < (d - 1) * 86400000;
       return '↑ ' + d + ' d ' + bytes(up) + (short ? ' (since ' + day(since) + ')' : '');
     }).filter(Boolean);
-    kpi(box, r.key === 'other' ? 'Ratio, other trackers' : 'Ratio ' + (TNAME[r.key] || r.name), 'up', ratio, '',
+    kpi(box, 'Ratio ' + (TNAME[r.key] || r.name), 'up', ratio, '',
       '↑ ' + bytes(r.up) + ' · ↓ ' + bytes(r.down) + ' · ' + r.torrents + ' torrents' + (win.length ? '\n' + win.join(' · ') : ''));
     if (r.up || r.down) box.querySelector('.value').style.color = r.down ? ratioColor(r.up / r.down) : C.ok;
     box.title = r.down ? '' : 'Nothing downloaded on this tracker by the torrents in qBittorrent (cross-seeded): the ratio the tracker shows also counts past downloads.';
-    if (r.key !== 'other' && TCOLOR[r.key]) box.querySelector('.label').prepend(el('i', {'class': 'dot', style: 'background:' + TCOLOR[r.key]}));
+    if (TCOLOR[r.key]) box.querySelector('.label').prepend(el('i', {'class': 'dot', style: 'background:' + TCOLOR[r.key]}));
   });
 }
 

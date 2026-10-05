@@ -324,6 +324,7 @@ the `_FILE` suffix (Docker secrets), e.g. `SEEDBOX_QBT_PASSWORD_FILE`.
 | `SEEDBOX_PROWLARR_API_KEY` | `prowlarr.api_key` | |
 | `SEEDBOX_TMDB_API_KEY` | `tmdb.api_key`: film titles for release matching | empty = title from the file name |
 | | `trackers.aliases` | none |
+| | `trackers.colors`: tracker → palette name or `#rrggbb` | palette in Prowlarr id order |
 | `SEEDBOX_OUTPUT_DIR` | `output.dir` | `/data` |
 | | `output.csv_delimiter` | `,` |
 | | `output.created_max` | `10` |

@@ -149,7 +149,7 @@ SECTIONS = {
     <div class="card kpi c3" id="k-indexers"></div>
     <div class="card kpi c3" id="k-unsearched"></div>
 
-    <div id="ratio-slot" hidden></div>
+    <div class="ratio-row" id="ratio-row"></div>
 
     <div class="card kpi c3" id="k-problems"></div>
     <div class="card kpi c3" id="k-dups"></div>

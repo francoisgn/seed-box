@@ -668,15 +668,16 @@ def _label(cfg, path):
 
 def ratio_table(records, target, names):
     """Upload and download of the torrents in qBittorrent, per declared tracker
-    (Prowlarr / cross-seed) plus one group for every other tracker."""
+    (Prowlarr / cross-seed). Other trackers are left out: the "Undeclared
+    trackers" tile lists their torrents, to clean them."""
     groups = {k: {"key": k, "name": names.get(k, k), "up": 0, "down": 0, "torrents": 0} for k in target}
-    other = {"key": "other", "name": "Other trackers", "up": 0, "down": 0, "torrents": 0}
     for r in records:
-        g = groups.get(r.get("tracker")) or other
-        g["up"] += r.get("uploaded") or 0
-        g["down"] += r.get("downloaded") or 0
-        g["torrents"] += 1
-    return sorted(groups.values(), key=lambda g: g["name"].lower()) + [other]
+        g = groups.get(r.get("tracker"))
+        if g:
+            g["up"] += r.get("uploaded") or 0
+            g["down"] += r.get("downloaded") or 0
+            g["torrents"] += 1
+    return sorted(groups.values(), key=lambda g: g["name"].lower())
 
 
 def link_folders(cfg):
@@ -754,6 +755,8 @@ def run(cfg, log, progress=lambda msg: None):
 
     rows = tracker_table(entries, indexers)
     for row in rows:
+        if row["key"] in cfg.tracker_colors:
+            row["color"] = cfg.tracker_colors[row["key"]]
         if row["in_prowlarr"] and row["enabled"] and not row["entries"]:
             warn(f"tracker {row['name']} is in Prowlarr but seeds nothing from the library")
         if not row["in_prowlarr"] and indexers:

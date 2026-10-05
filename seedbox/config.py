@@ -9,6 +9,7 @@ Lookup order for the file: --config, $SEEDBOX_CONFIG, ./seedbox.toml,
 import hashlib
 import json
 import os
+import re
 import stat
 import tomllib
 from dataclasses import dataclass, field
@@ -23,6 +24,10 @@ DEFAULT_MEDIA_EXT = [
     ".mkv", ".mp4", ".avi", ".m4v", ".mov", ".wmv", ".mpg", ".mpeg",
     ".ts", ".m2ts", ".iso", ".divx", ".flv", ".webm",
 ]  # fmt: skip
+
+
+# Dashboard palette, in slot order (SLOTS in web/app.js).
+PALETTE = ("blue", "orange", "green", "amber", "pink", "purple", "red", "darkgreen")
 
 
 class ConfigError(Exception):
@@ -56,6 +61,9 @@ class Config:
     # Announce or indexer host -> tracker display name, to merge hosts that
     # belong to the same tracker or give them a readable name.
     tracker_aliases: dict = field(default_factory=dict)
+    # Tracker key -> colour in charts and chips: a palette name (PALETTE) or
+    # #rrggbb. Trackers without one take the next slot in Prowlarr order.
+    tracker_colors: dict = field(default_factory=dict)
 
     # Folders holding cross-seed links (path component names): torrents found
     # there are linked copies, not library content.
@@ -280,6 +288,7 @@ def load(path=None):
     cfg.plex_data_dir = plex.get("data_dir", cfg.plex_data_dir)
 
     cfg.tracker_aliases = {k.lower(): v for k, v in data.get("trackers", {}).get("aliases", {}).items()}
+    cfg.tracker_colors = {k.lower(): str(v).lower() for k, v in data.get("trackers", {}).get("colors", {}).items()}
 
     output = data.get("output", {})
     cfg.output_dir = output.get("dir", cfg.output_dir)
@@ -361,6 +370,9 @@ def load(path=None):
         raise ConfigError('[upload] nfo: "mediainfo" or "seedbox"')
     if cfg.prowlarr_enabled and not cfg.prowlarr_api_key:
         raise ConfigError("Prowlarr URL set without an API key (SEEDBOX_PROWLARR_API_KEY)")
+    for key, color in cfg.tracker_colors.items():
+        if color not in PALETTE and not re.fullmatch(r"#[0-9a-f]{6}", color):
+            raise ConfigError(f"[trackers.colors] {key}: one of {', '.join(PALETTE)} or #rrggbb")
     return cfg
 
 

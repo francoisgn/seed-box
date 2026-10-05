@@ -1,5 +1,15 @@
 # Changelog
 
+## 2.5.0
+
+- Ratio tiles: one per declared tracker on a row of its own, sized to their
+  number, in colour order. The "other trackers" tile is gone (the
+  "Undeclared trackers" tile already lists those torrents).
+- `[trackers.colors]`: pick a tracker's colour (palette name or `#rrggbb`)
+  instead of the next slot in Prowlarr order.
+- `docs/internals.md`: data flow, mechanisms, module map and runbooks (add a
+  tracker, release).
+
 ## 2.4.1
 
 - Cross-seed matches that never finish: the extras they lack share a piece with

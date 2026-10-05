@@ -147,6 +147,9 @@ h3 { font-size: 16px; line-height: 24px; font-weight: 500; margin: 0; }
 .hero .meta { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
 
 /* KPI tiles */
+/* Ratio tiles: one row whatever the number of declared trackers (--n set by app.js). */
+.ratio-row { grid-column: span 12; display: grid; grid-template-columns: repeat(var(--n, 4), minmax(0, 1fr)); gap: 24px; }
+.ratio-row:empty { display: none; }
 .kpi { display: flex; flex-direction: column; gap: 8px; position: relative; }
 .kpi .label { color: var(--t2); display: flex; align-items: center; gap: 8px; }
 .kpi .value { font-size: 36px; line-height: 44px; font-weight: 400; letter-spacing: -0.5px; }
@@ -290,6 +293,7 @@ dialog .form-grid input.missing { border-color: var(--ko); }
 /* Responsive */
 @media (max-width: 1280px) {
   .c3 { grid-column: span 6; } .c4, .c5 { grid-column: span 6; } .c7, .c8 { grid-column: span 12; }
+  .ratio-row { grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); }
 }
 @media (max-width: 900px) {
   .rail { inset: auto 0 0 0; width: auto; height: 72px; flex-direction: row; justify-content: space-around;
@@ -320,7 +324,7 @@ dialog .form-grid input.missing { border-color: var(--ko); }
   .crumbs { display: none; }
   main { margin-left: 0; padding: 24px 16px 96px; min-width: 0; max-width: 100vw; }
   .table-wrap { overscroll-behavior-x: contain; -webkit-overflow-scrolling: touch; }
-  .grid { gap: 16px; }
+  .grid, .ratio-row { gap: 16px; }
   .c3, .c4, .c5, .c6, .c7, .c8 { grid-column: span 12; }
   .hero { flex-direction: column; align-items: flex-start; gap: 16px; }
   .hero svg.logo { width: 160px; }

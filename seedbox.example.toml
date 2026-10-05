@@ -61,6 +61,12 @@ url = "http://prowlarr:9696"
 [trackers.aliases]
 # "announce.tracker-a.example" = "tracker-a.example"
 
+# Colour of a tracker in charts and chips (key = tracker domain after aliases):
+# blue, orange, green, amber, pink, purple, red, darkgreen or "#rrggbb".
+# Without one, declared trackers take the palette in Prowlarr id order.
+[trackers.colors]
+# "tracker-a.example" = "purple"
+
 [output]
 dir = "/data"
 csv_delimiter = ","             # ";" opens straight in Excel with a French locale
