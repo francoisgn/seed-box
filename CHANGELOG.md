@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.5.1
 
 - `seedbox disc add "Title" YEAR` (run on your computer): a disc you own
   becomes a short placeholder video in a Plex library for physical discs
