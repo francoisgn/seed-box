@@ -247,6 +247,47 @@ film Plex plays is matched to the library entry that holds it.
 The token comes from `[plex] token` / `SEEDBOX_PLEX_TOKEN`, or from Plex's
 `Preferences.xml` when its config folder is mounted read-only (`PLEX_CONFIG_DIR`).
 
+### Physical discs in Plex
+
+Discs you own (Blu-ray, DVD) can sit in Plex next to the files: one short
+placeholder video per disc, in a Plex movie library kept for them. Plex
+matches the film from the folder name, so the library shows the real poster
+and summary, collections and playlists can include the disc, and playing it
+shows the clip: time to put the disc in.
+
+`seedbox disc` runs on your computer (not in the container), with `ffmpeg`,
+`yt-dlp` for clips, and SSH access to the host holding the folder:
+
+```sh
+python3 -m seedbox disc add "Some Film" 1999                 # search "<title> <year> opening scene", pick a clip
+python3 -m seedbox disc add "Some Film" 1999 --url URL --start 12 --length 90
+python3 -m seedbox disc add "Some Film" 2001 --edition 4K --collection "Some Saga"
+python3 -m seedbox disc add "Some Film" 1999 --card          # no clip: a black card with the title
+python3 -m seedbox disc list
+```
+
+Each disc becomes `<dir>/Some Film (1999)/Some Film (1999).mkv` (H.264 +
+AAC, plays everywhere without transcoding; `--edition` adds Plex's
+`{edition-…}` tag). Then Plex scans that folder, the matched title is shown
+(check it is the right film) and the item is tagged with the collections.
+`--dry-run` shows the chosen clip and changes nothing; an existing disc is
+kept unless `--force`. The card is a subtitle over a black screen: ffmpeg
+builds without `drawtext` work.
+
+Settings: `[physical]` in the same TOML file (default
+`~/.config/seedbox/seedbox.toml` or `$SEEDBOX_CONFIG`), plus `[plex] url`:
+
+| Key | Meaning |
+|---|---|
+| `host` | SSH alias of the host holding the folder (empty: a local folder) |
+| `dir` | the folder of the physical-disc library, on that host |
+| `plex_dir` | the same folder as Plex sees it (default: `dir`) |
+| `plex_token_cmd` | shell command printing the Plex token (else `[plex] token`, `SEEDBOX_PLEX_TOKEN`) |
+| `length`, `search_suffix`, `card_text`, `collection` | seconds kept (150), search words after the year, card line, collection for every disc |
+
+Keep that folder out of `[library] roots` and of cross-seed's data dirs:
+placeholders are not media to seed.
+
 ## Deploy (container, remote host)
 
 From your machine, over SSH, with your host details and secrets kept in a

@@ -469,6 +469,12 @@ def cmd_run(cfg):
 
 
 def main(argv=None):
+    argv = sys.argv[1:] if argv is None else argv
+    if argv[:1] == ["disc"]:
+        # Physical discs: its own options and settings, runs outside the container.
+        from seedbox import disc
+
+        return disc.main(argv[1:])
     parser = argparse.ArgumentParser(prog="seedbox", description=__doc__)
     parser.add_argument("--version", action="version", version=f"seedbox {__version__}")
     parser.add_argument("-c", "--config", help="TOML config file (default: $SEEDBOX_CONFIG, ./seedbox.toml)")

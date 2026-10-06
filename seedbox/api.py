@@ -11,13 +11,13 @@ class ApiError(Exception):
     pass
 
 
-def request(url, data=None, headers=None, timeout=60, raw=False):
+def request(url, data=None, headers=None, timeout=60, raw=False, method=None):
     """Return (status, body, response headers). Raises ApiError on network errors.
 
     data: a dict (form-encoded) or bytes sent as is (set Content-Type in headers).
-    raw: body returned as bytes instead of text."""
+    raw: body returned as bytes instead of text. method: e.g. "PUT" (default GET, or POST with data)."""
     body = data if isinstance(data, bytes) else urllib.parse.urlencode(data).encode() if data is not None else None
-    req = urllib.request.Request(url, data=body, headers=headers or {})
+    req = urllib.request.Request(url, data=body, headers=headers or {}, method=method)
 
     def read(resp):
         content = resp.read()

@@ -41,6 +41,18 @@ max_depth = 4
 # token = ""
 # data_dir = "/plex"
 
+[physical]
+# `seedbox disc` (run on your computer): a placeholder video per disc you own,
+# in a Plex movie library kept for them. Keep this folder out of [library] roots.
+# host = "nas"                       # ssh alias; empty = local folder
+# dir = "/volume1/video/physical"    # on that host
+# plex_dir = "/media/physical"       # same folder as Plex sees it
+# plex_token_cmd = ""                # shell command printing the Plex token
+# length = 150                       # seconds kept from a clip
+# search_suffix = "opening scene"
+# card_text = "Physical disc"
+# collection = ""
+
 [qbittorrent]
 url = "http://qbittorrent:8080"
 username = "admin"

@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- `seedbox disc add "Title" YEAR` (run on your computer): a disc you own
+  becomes a short placeholder video in a Plex library for physical discs
+  ("Title (Year)/Title (Year).mkv", H.264 + AAC): a clip found on YouTube or
+  given by URL (yt-dlp, trimmed), or a title card; copied over ssh, scanned by
+  Plex, tagged with collections. `seedbox disc list`. Settings in `[physical]`.
+
 ## 2.5.0
 
 - Ratio tiles: one per declared tracker on a row of its own, sized to their

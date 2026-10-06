@@ -55,6 +55,7 @@ visual is computed client-side in `seedbox/web/app.js` from the snapshot.
 | `tmdb.py` | Film titles (fr/en/original), year, IMDb id |
 | `titles.py` | Release name → title, year, episode, resolution |
 | `plex.py` | Plex page data (read-only) |
+| `disc.py` | `seedbox disc`: placeholder videos for physical discs in a Plex library (workstation side) |
 | `schedule.py` | `"HH:MM"` / `"sun 04:00"` schedules |
 | `api.py`, `ui.py` | urllib JSON helper; terminal colours and spinner |
 
@@ -176,6 +177,21 @@ Read-only side panels: `plex.py` (token from config or the mounted
 Preferences.xml), `metrics.py` (`/proc` + one qBittorrent call, never the
 media disks), `status.py` (rechecks, moves, errors; deletions only show up
 in the log).
+
+### Physical discs
+
+`disc.py`, reached by `seedbox disc …` (routed first thing in `cli.main`,
+before the config is loaded and validated: it runs on a workstation where
+the deploy secrets are absent). It reads only `[physical]` and `[plex] url`
+of the TOML file (`load_settings`). Steps of `add`: `plex_name` ("Title
+(Year)" + `{edition-…}`), refuse an existing folder unless `--force`, clip
+from `yt-dlp` (search `ytsearchN:`, `--url`) converted by ffmpeg
+(`encode_command`: H.264 + AAC .mkv, Direct Play) or a card (`card_command`:
+black video + a default forced srt, no `drawtext`), copy over ssh
+(`install`: `mkdir -p` + `cat >` with every argument shell-quoted by
+`remote_command`), then Plex: library found by its folder (`plex_dir`),
+partial refresh of the new folder, poll until the file shows, `PUT` the
+collection tags. Pure helpers are tested in `tests/test_disc.py`.
 
 ## Runbooks
 
