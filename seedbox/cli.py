@@ -221,6 +221,20 @@ class _Handler(http.server.SimpleHTTPRequestHandler):
     def _client(self):
         return QbtClient(self.cfg.qbt_url, self.cfg.qbt_username, self.cfg.qbt_password)
 
+    def send_header(self, keyword, value):
+        if keyword.lower() == "cache-control":
+            self._cache_set = True
+        super().send_header(keyword, value)
+
+    def end_headers(self):
+        # Files of the output folder (pages with the snapshot inside, CSVs): revalidated on every
+        # load. With only Last-Modified, browsers cache heuristically and keep showing a page
+        # collected hours ago.
+        if not getattr(self, "_cache_set", False):
+            super().send_header("Cache-Control", "no-cache")
+        self._cache_set = False
+        super().end_headers()
+
     def _send(self, code, body):
         data = json.dumps(body, ensure_ascii=False).encode()
         self.send_response(code)

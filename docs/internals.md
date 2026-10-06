@@ -19,7 +19,7 @@ cross-seed.db (copy) ─┘        │                               ├─ hist
 
 seedbox run (cli._Service + cli._Handler)
   ├─ collection on schedule or on demand (POST /api/collect)
-  ├─ serves the output folder (pages embed the snapshot as JSON)
+  ├─ serves the output folder (pages embed the snapshot as JSON; Cache-Control: no-cache)
   ├─ live API: status, metrics, plex, upload, checks, created
   └─ write API: action, match, create, upload, check (LAN only, service.actions)
 ```

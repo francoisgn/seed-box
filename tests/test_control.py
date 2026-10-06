@@ -609,6 +609,19 @@ class HttpApi(unittest.TestCase):
             status, body = self.post("/api/collect", {"X-Seedbox": "1", "Content-Type": "application/json"})
         self.assertEqual((status, body["running"]), (202, True))
 
+    def test_pages_are_revalidated(self):
+        with open(os.path.join(self.tmp.name, "index.html"), "w") as handle:
+            handle.write("<p>snapshot</p>")
+        conn = http.client.HTTPConnection("127.0.0.1", self.server.server_port)
+        conn.request("GET", "/index.html")
+        resp = conn.getresponse()
+        resp.read()
+        self.assertEqual((resp.status, resp.getheader("Cache-Control")), (200, "no-cache"))
+        conn.request("GET", "/api/collect")  # same connection: the API keeps its own header
+        resp = conn.getresponse()
+        resp.read()
+        self.assertEqual(resp.getheader("Cache-Control"), "no-store")
+
     def test_collect_state(self):
         conn = http.client.HTTPConnection("127.0.0.1", self.server.server_port)
         conn.request("GET", "/api/collect")

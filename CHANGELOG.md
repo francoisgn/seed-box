@@ -7,6 +7,9 @@
   ("Title (Year)/Title (Year).mkv", H.264 + AAC): a clip found on YouTube or
   given by URL (yt-dlp, trimmed), or a title card; copied over ssh, scanned by
   Plex, tagged with collections. `seedbox disc list`. Settings in `[physical]`.
+- Dashboard pages are served with `Cache-Control: no-cache`: a browser no
+  longer shows a page from an older collection (it cached them for hours from
+  `Last-Modified` alone).
 
 ## 2.5.0
 
