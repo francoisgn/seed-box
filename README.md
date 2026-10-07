@@ -264,6 +264,7 @@ python3 -m seedbox disc add "Some Film" 1999 --url URL --start 12 --length 90
 python3 -m seedbox disc add "Some Film" 2001 --edition 4K --collection "Some Saga"
 python3 -m seedbox disc add "Some Film" 1999 --card          # no clip: a black card with the title
 python3 -m seedbox disc list
+python3 -m seedbox disc playlist "Some Saga" --dry-run   # (re)build a playlist from [[physical.playlists]]
 ```
 
 Each disc becomes `<dir>/Some Film (1999)/Some Film (1999).mkv` (H.264 +
@@ -287,6 +288,20 @@ Settings: `[physical]` in the same TOML file (default
 
 Keep that folder out of `[library] roots` and of cross-seed's data dirs:
 placeholders are not media to seed.
+
+**Playlists across libraries** (a saga in story order, films and episodes
+mixed, discs included): each `[[physical.playlists]]` has a `title` and
+`steps`, `"movie: Title"` or `"show: Title | 1,2"` (seasons; specials never).
+A step is looked up in every Plex library of its kind by displayed or original
+title (exact first, else the shortest title containing it); steps not in Plex
+yet are listed and skipped. `seedbox disc playlist "Some Saga"` replaces the
+playlist of that title: rerun it after adding a disc or a season.
+
+```toml
+[[physical.playlists]]
+title = "Some Saga in order"
+steps = ["show: Some Prequel Show", "movie: Some Film", "show: Some Show | 1,2", "movie: Some Film Returns"]
+```
 
 ## Deploy (container, remote host)
 

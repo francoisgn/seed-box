@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `seedbox disc playlist "<title>"`: (re)builds a Plex playlist across
+  libraries from `[[physical.playlists]]` steps (`"movie: Title"`,
+  `"show: Title | 1,2"`), e.g. a saga in story order with the discs you own;
+  steps not in Plex yet are listed and skipped. `--dry-run` resolves only.
+
 ## 2.5.1
 
 - `seedbox disc add "Title" YEAR` (run on your computer): a disc you own

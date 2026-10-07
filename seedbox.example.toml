@@ -52,6 +52,11 @@ max_depth = 4
 # search_suffix = "opening scene"
 # card_text = "Physical disc"
 # collection = ""
+#
+# Playlists across libraries, rebuilt by `seedbox disc playlist "<title>"`:
+# [[physical.playlists]]
+# title = "Some Saga in order"
+# steps = ["show: Some Show | 1", "movie: Some Film", "show: Some Show | 2"]
 
 [qbittorrent]
 url = "http://qbittorrent:8080"

@@ -25,7 +25,7 @@ import time
 import tomllib
 import urllib.parse
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from seedbox import ui
 from seedbox.api import ApiError, request
@@ -53,6 +53,7 @@ class Settings:
     card_text: str = "Physical disc"
     search_suffix: str = "opening scene"
     collection: str = ""  # collection every disc goes to (besides --collection)
+    playlists: list = field(default_factory=list)  # [[physical.playlists]]: {title, steps}
 
 
 def load_settings(path=None):
@@ -70,6 +71,7 @@ def load_settings(path=None):
     for key in ("host", "dir", "plex_dir", "plex_token_cmd", "card_text", "search_suffix", "collection"):
         setattr(s, key, str(phys.get(key, getattr(s, key))))
     s.length = int(phys.get("length", s.length))
+    s.playlists = [p for p in phys.get("playlists", []) if isinstance(p, dict)]
     s.plex_url = os.environ.get("SEEDBOX_PLEX_URL", plex.get("url", "")).rstrip("/")
     s.plex_token = os.environ.get("SEEDBOX_PLEX_TOKEN", plex.get("token", ""))
     s.dir = s.dir.rstrip("/")
@@ -137,6 +139,34 @@ def parse_candidates(text):
         if len(parts) == 4 and re.fullmatch(r"[\w-]{6,}", parts[0]):
             out.append({"id": parts[0], "duration": parts[1], "channel": parts[2], "title": parts[3]})
     return out
+
+
+def parse_step(step):
+    """'show: Title | 1,2' or 'movie: Title' → (kind, title in lower case, seasons or None)."""
+    kind, sep, rest = step.partition(":")
+    kind = kind.strip().lower()
+    if not sep or kind not in ("show", "movie"):
+        raise DiscError(f"playlist step {step!r}: 'show: Title [| 1,2]' or 'movie: Title'")
+    title, _, seasons = rest.partition("|")
+    title = title.strip().lower()
+    if not title:
+        raise DiscError(f"playlist step {step!r}: no title")
+    if kind == "movie" and seasons.strip():
+        raise DiscError(f"playlist step {step!r}: a film has no seasons")
+    try:
+        picked = [int(n) for n in seasons.replace(" ", "").split(",") if n] or None
+    except ValueError as exc:
+        raise DiscError(f"playlist step {step!r}: seasons are numbers, e.g. | 1,2") from exc
+    return kind, title, picked
+
+
+def pick_item(items, title):
+    """The item for a step among {title, original}: exact title first, else the shortest containing it."""
+    exact = [i for i in items if title in (i["title"].lower(), i.get("original", "").lower())]
+    if exact:
+        return exact[0]
+    hits = [i for i in items if title in i["title"].lower() or title in i.get("original", "").lower()]
+    return min(hits, key=lambda i: len(i["title"])) if hits else None
 
 
 def remote_command(*args):
@@ -235,7 +265,7 @@ class Plex:
     def call(self, path, method="GET", **params):
         params["X-Plex-Token"] = self.tok
         status, body, _ = request(f"{self.url}{path}?{urllib.parse.urlencode(params)}", method=method, timeout=120)
-        if status not in (200, 201):
+        if status not in (200, 201, 204):
             raise DiscError(f"Plex: HTTP {status} on {path}")
         return ET.fromstring(body) if body.strip() else None
 
@@ -244,6 +274,53 @@ class Plex:
             if any(loc.get("path", "").rstrip("/") == folder for loc in d.iter("Location")):
                 return d.get("key")
         raise DiscError(f"no Plex library has the folder {folder}")
+
+    def catalog(self, kind):
+        """Every film or show of every library of that kind: [{key, title, original, year}]."""
+        out = []
+        for d in self.call("/library/sections").iter("Directory"):
+            if d.get("type") != kind:
+                continue
+            tag = "Video" if kind == "movie" else "Directory"
+            for m in self.call(f"/library/sections/{d.get('key')}/all").iter(tag):
+                out.append(
+                    {
+                        "key": m.get("ratingKey"),
+                        "title": m.get("title", ""),
+                        "original": m.get("originalTitle", ""),
+                        "year": m.get("year", ""),
+                    }
+                )
+        return out
+
+    def children(self, key):
+        root = self.call(f"/library/metadata/{key}/children")
+        items = [c for c in root if c.get("ratingKey")]
+        return sorted(items, key=lambda c: int(c.get("index", 0)))
+
+    def episodes(self, show, seasons=None):
+        """Episode keys of a show in order, season 0 (specials) left out unless asked."""
+        keys = []
+        for season in self.children(show):
+            index = int(season.get("index", 0))
+            if (seasons and index not in seasons) or (not seasons and index == 0):
+                continue
+            keys += [e.get("ratingKey") for e in self.children(season.get("ratingKey"))]
+        return keys
+
+    def replace_playlist(self, title, keys, chunk=80):
+        """Drop the playlist of that title (if any) and create it with keys in order. Returns its key."""
+        for p in self.call("/playlists").iter("Playlist"):
+            if p.get("title") == title:
+                self.call(f"/playlists/{p.get('ratingKey')}", method="DELETE")
+        machine = self.call("/identity").get("machineIdentifier")
+        base = f"server://{machine}/com.plexapp.plugins.library/library/metadata/"
+        parts = [keys[i : i + chunk] for i in range(0, len(keys), chunk)]
+        made = self.call("/playlists", method="POST", type="video", title=title, smart=0, uri=base + ",".join(parts[0]))
+        pid = next(made.iter("Playlist")).get("ratingKey")
+        for part in parts[1:]:
+            self.call(f"/playlists/{pid}/items", method="PUT", uri=base + ",".join(part))
+        return pid
 
     def find(self, section, path):
         for video in self.call(f"/library/sections/{section}/all").iter("Video"):
@@ -340,6 +417,52 @@ def cmd_add(s, args):
     return 0
 
 
+def cmd_playlist(s, args):
+    """List the playlists defined in [[physical.playlists]], or (re)build the one named."""
+    if not s.playlists:
+        raise DiscError("no [[physical.playlists]] in the config")
+    if not args.title:
+        for p in s.playlists:
+            print(f"{p.get('title', '?')}  ({len(p.get('steps', []))} steps)")
+        return 0
+    wanted = [p for p in s.playlists if args.title.lower() in p.get("title", "").lower()]
+    if len(wanted) != 1:
+        raise DiscError(f"{len(wanted)} playlists match {args.title!r}: give more of the title")
+    title, steps = wanted[0]["title"], [parse_step(x) for x in wanted[0].get("steps", [])]
+    if not s.plex_url:
+        raise DiscError("Plex is not configured ([plex] url)")
+    tok = plex_token(s)
+    if not tok:
+        raise DiscError("no Plex token ([plex] token, SEEDBOX_PLEX_TOKEN or [physical] plex_token_cmd)")
+    plex = Plex(s.plex_url, tok)
+    with ui.Spinner("Reading the Plex libraries"):
+        catalogs = {"movie": plex.catalog("movie"), "show": plex.catalog("show")}
+    keys, missing = [], []
+    with ui.Spinner("Resolving the steps") as spin:
+        for kind, name, seasons in steps:
+            spin.update(f"Resolving {name}")
+            item = pick_item(catalogs[kind], name)
+            if item is None:
+                missing.append(name)
+                continue
+            found = [item["key"]] if kind == "movie" else plex.episodes(item["key"], seasons)
+            keys += found
+            what = "film" if kind == "movie" else f"{len(found)} episodes" + (f", seasons {seasons}" if seasons else "")
+            ui.info(f"{item['title']} ({item['year']}): {what}")
+    for name in missing:
+        ui.warn(f"not in Plex yet: {name}")
+    if not keys:
+        raise DiscError("nothing found in Plex for this playlist")
+    if args.dry_run:
+        ui.info(f"would rebuild {title!r} with {len(keys)} items")
+        return 0
+    pid = plex.replace_playlist(title, keys)
+    ui.ok(
+        f"playlist {title!r} rebuilt: {len(keys)} items (Plex {pid})" + (f", {len(missing)} missing" if missing else "")
+    )
+    return 0
+
+
 def cmd_list(s, args):
     if not s.dir:
         raise DiscError("[physical] dir is not set")
@@ -372,10 +495,13 @@ def main(argv=None):
     add.add_argument("-n", "--dry-run", action="store_true", help="show what would be done, change nothing")
     add.add_argument("--force", action="store_true", help="replace a disc already there")
     sub.add_parser("list", help="discs already in the folder")
+    play = sub.add_parser("playlist", help="list the playlists of [[physical.playlists]], or rebuild one in Plex")
+    play.add_argument("title", nargs="?", help="part of the playlist title (none: list them)")
+    play.add_argument("-n", "--dry-run", action="store_true", help="resolve the steps, change nothing")
     args = parser.parse_args(argv)
     try:
         s = load_settings(args.config)
-        return {"add": cmd_add, "list": cmd_list}[args.command](s, args)
+        return {"add": cmd_add, "list": cmd_list, "playlist": cmd_playlist}[args.command](s, args)
     except (DiscError, ApiError) as exc:
         ui.ko(str(exc))
         return 1

@@ -191,7 +191,12 @@ black video + a default forced srt, no `drawtext`), copy over ssh
 (`install`: `mkdir -p` + `cat >` with every argument shell-quoted by
 `remote_command`), then Plex: library found by its folder (`plex_dir`),
 partial refresh of the new folder, poll until the file shows, `PUT` the
-collection tags. Pure helpers are tested in `tests/test_disc.py`.
+collection tags. `playlist`: `[[physical.playlists]]` steps parsed by
+`parse_step`, each resolved with `pick_item` over the catalog of every
+library of its kind (displayed or original title; a show gives its
+episodes, season 0 left out unless named), then `replace_playlist` deletes
+the playlist of that title and creates it again in order (URIs in chunks of
+80). Pure helpers are tested in `tests/test_disc.py`.
 
 ## Runbooks
 

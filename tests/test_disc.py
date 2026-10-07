@@ -25,6 +25,39 @@ class Names(unittest.TestCase):
         self.assertEqual(disc.search_query("Some Film", 1999, ""), "Some Film 1999")
 
 
+class Playlists(unittest.TestCase):
+    def test_parse_step(self):
+        self.assertEqual(disc.parse_step("show: Some Show | 1, 2"), ("show", "some show", [1, 2]))
+        self.assertEqual(disc.parse_step(" Movie :Some Film "), ("movie", "some film", None))
+        self.assertEqual(disc.parse_step("show: Some Show"), ("show", "some show", None))
+        for bad in ("Some Film", "book: Some Film", "show: | 1", "movie: Some Film | 1", "show: Some Show | one"):
+            with self.assertRaises(disc.DiscError):
+                disc.parse_step(bad)
+
+    def test_pick_item(self):
+        items = [
+            {"key": "1", "title": "Some Saga: Some Film", "original": ""},
+            {"key": "2", "title": "Le Film", "original": "Some Film"},
+            {"key": "3", "title": "Some Film Returns", "original": ""},
+        ]
+        self.assertEqual(disc.pick_item(items, "some film")["key"], "2")  # exact original title wins
+        self.assertEqual(disc.pick_item(items, "returns")["key"], "3")
+        self.assertEqual(disc.pick_item(items, "some saga")["key"], "1")
+        self.assertIsNone(disc.pick_item(items, "other"))
+
+    def test_settings_read_playlists(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "seedbox.toml")
+            with open(path, "w") as handle:
+                handle.write(
+                    '[[physical.playlists]]\ntitle = "Saga"\nsteps = ["movie: Some Film", "show: Some Show | 1"]\n'
+                )
+            with mock.patch.dict(os.environ, {}, clear=True):
+                s = disc.load_settings(path)
+        self.assertEqual([p["title"] for p in s.playlists], ["Saga"])
+        self.assertEqual(len(s.playlists[0]["steps"]), 2)
+
+
 class Commands(unittest.TestCase):
     def test_encode_caps_length(self):
         cmd = disc.encode_command("in.webm", "out.mkv", "Some Film (1999)", start=5, length=10_000)
