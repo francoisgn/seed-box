@@ -43,6 +43,24 @@ class Titles(unittest.TestCase):
         self.assertEqual(titles.parse("[site.net] Finding.Dory.2016.MULTI.1080p.mkv")["key"], "finding dory|2016|")
         self.assertEqual(titles.parse("Game.of.Thrones.S08E02.1080p.mkv")["episode"], "S08E02")
 
+    def test_season_packs_are_not_versions(self):
+        s1 = titles.parse("Some.Show.2014.S01.MULTi.1080p.WEBRip.x265-GRP")
+        s2 = titles.parse("Some.Show.2014.S02.MULTi.1080p.WEBRip.x265-GRP")
+        other = titles.parse("Some Show (2014) S01 MULTi 2160p x265-OTHER")
+        self.assertEqual((s1["season"], s2["season"]), ("S01", "S02"))
+        self.assertNotEqual(s1["key"], s2["key"])
+        self.assertEqual(s1["key"], other["key"])  # two releases of one season are versions
+        self.assertEqual(titles.parse("Some.Show.S03E04.1080p.mkv")["season"], "")  # an episode, not a pack
+
+    def test_episode_in_parts_is_not_a_duplicate(self):
+        names = [
+            "Some Show - S00E05 - A Title - part1 x265-GRP.mkv",
+            "Some Show - S00E05 - A Title - part2 x265-GRP.mkv",
+            "Some Show - S01E02 - Other.mkv",
+            "Some.Show.S01E02.MULTi.mkv",
+        ]
+        self.assertEqual(list(library._duplicate_episodes(names)), ["S01E02"])
+
     def test_episodes_and_parts(self):
         self.assertTrue(titles.is_episode("DBZ - 001 Un mysterieux guerrier.avi"))
         self.assertTrue(titles.is_episode("The.Truth.About.The.Harry.Quebert.Affair.01.FR.720p.mkv"))

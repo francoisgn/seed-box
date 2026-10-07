@@ -125,7 +125,10 @@ Prowlarr with a higher id never recolours the others.
 `collect.diagnose`: per entry, coverage `everywhere` (all of `target`),
 `partial`, `none`; issues (incomplete, tracker errors, missing files…) with
 the fixes the dashboard offers; duplicate groups (same file on a tracker
-twice, several versions of a work, episodes twice). `search_status` crosses
+twice, several versions of a work, episodes twice). A work's identity is
+`titles.parse` → `title|year|episode or season`: seasons of one show are not
+versions of each other, and an episode split in `part1`/`part2` files
+(`titles.part_key`) is not counted twice. `search_status` crosses
 "missing on tracker X" with the cross-seed database: searched and nothing
 found (upload opportunity), other release present, not searched yet, outside
 cross-seed's data folders.

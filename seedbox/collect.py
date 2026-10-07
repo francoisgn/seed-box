@@ -477,7 +477,7 @@ def diagnose(entries, records, target_keys):
     groups = {}
     for i, entry in enumerate(entries):
         info = titles.parse(os.path.basename(entry.name))
-        if entry.kind == "dir" and not info["year"] and not info["episode"]:
+        if entry.kind == "dir" and not info["year"] and not info["episode"] and not info["season"]:
             continue  # show folders, collections: no reliable identity
         if len(info["title"]) < 2:
             continue

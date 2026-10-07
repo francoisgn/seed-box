@@ -175,7 +175,10 @@ def _duplicate_episodes(names):
         ep = titles.parse(name)["episode"]
         if ep:
             seen.setdefault(ep, []).append(name)
-    return {ep: sorted(found) for ep, found in sorted(seen.items()) if len(found) > 1}
+    # "S00E05 … part1" and "… part2" are one episode in two files, not two copies of it.
+    return {
+        ep: sorted(found) for ep, found in sorted(seen.items()) if len({titles.part_key(n) or n for n in found}) > 1
+    }
 
 
 def build(cfg, warn=lambda msg: None):

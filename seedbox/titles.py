@@ -13,6 +13,8 @@ EPISODE = re.compile(r"(?i)\bS(\d{1,2})[ ._-]?E(\d{1,3})\b|\b(\d{1,2})x(\d{2,3})
 # "Show.Name.01.FR.720p": two/three-digit number between dots.
 NUMBERED = re.compile(r"(?i)(?:\s-\s|\bep(?:isode)?[ ._-]?)(\d{1,3})(?:\s|$|\s?-|\.)|\.(\d{2,3})\.")
 SEASON = re.compile(r"(?i)^(?:season|saison)[ ._-]?\d{1,2}$|^s\d{1,2}$|\bS\d{1,2}\b(?![ ._-]?E\d)")
+# "Show.2014.S02.MULTi…": a season pack, its season is part of its identity.
+SEASON_PACK = re.compile(r"(?i)\bS(\d{1,2})\b(?![ ._-]?E\d)")
 YEAR = re.compile(r"(?<![0-9])(19[2-9]\d|20[0-4]\d)(?![0-9])")
 RESOLUTION = re.compile(r"(?i)\b(2160p|4k|uhd(?=\b|r10)|1080p|720p|576p|480p)")
 # Words that end the title part of a release name.
@@ -85,10 +87,14 @@ def parse(name):
     title = re.sub(r"\s+", " ", title).strip().lower()
     title = re.sub(r"^(the|le|la|les|l)\s+", "", title)
     year = year_match.group(1) if year_match and (not ep or year_match.start() < ep.start()) else ""
+    pack = SEASON_PACK.search(name) if not ep else None
+    season = f"S{int(pack.group(1)):02d}" if pack and pack.start() > 0 else ""
     return {
         "title": title,
         "year": year,
         "episode": episode,
+        "season": season,
         "resolution": resolution(name),
-        "key": f"{title}|{year}|{episode}",
+        # Seasons of one show are not versions of each other.
+        "key": f"{title}|{year}|{episode or season}",
     }

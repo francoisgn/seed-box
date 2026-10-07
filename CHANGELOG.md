@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- Season packs of one show ("Show.2014.S01…", "Show.2014.S02…") are no
+  longer reported as several versions of the same work: the season is part
+  of the identity (two releases of one season still are versions).
+- An episode split in two files ("S00E05 … part1", "… part2") is no longer
+  reported as an episode twice.
+
 ## 2.5.2
 
 - `seedbox disc playlist "<title>"`: (re)builds a Plex playlist across
