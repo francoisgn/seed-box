@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.5.3
 
 - Season packs of one show ("Show.2014.S01…", "Show.2014.S02…") are no
   longer reported as several versions of the same work: the season is part
