@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 2.5.2
 
 - `seedbox disc playlist "<title>"`: (re)builds a Plex playlist across
   libraries from `[[physical.playlists]]` steps (`"movie: Title"`,
