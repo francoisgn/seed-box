@@ -506,6 +506,32 @@ class OrphanLinks(unittest.TestCase):
             self.assertEqual((o["count"], o["bytes"]), (2, 7))
             self.assertIn('rm -f -- ".cross-seed/tracker-a/Alone.mkv"', o["script"])
             self.assertIn('find ".cross-seed" -mindepth 2 -type d -empty -delete', o["script"])
+            self.assertTrue(o["writable"])
+
+    def test_remove_orphans_action(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            media = os.path.join(tmp, "media")
+            films, links = os.path.join(media, "films"), os.path.join(media, ".cross-seed", "tracker-a")
+            touch(os.path.join(films, "Kept.mkv"), 5)
+            touch(os.path.join(links, "Pack", "e01.mkv"), 3)
+            touch(os.path.join(links, "Alone.mkv"), 7)
+            touch(os.path.join(links, "Late.mkv"), 2)
+            touch(os.path.join(media, "Outside.mkv"), 1)
+            cfg = load_cfg([films], os.path.join(tmp, "out"), path_map={"/video": media}, actions=True)
+            # Late.mkv became used after the snapshot: it stays. Paths outside the orphans are ignored.
+            qbt = FakeQbt([{"hash": A, "content_path": "/video/.cross-seed/tracker-a/Late.mkv"}], {})
+            paths = [".cross-seed/tracker-a/Alone.mkv", ".cross-seed/tracker-a/Pack/e01.mkv",
+                     ".cross-seed/tracker-a/Late.mkv", "Outside.mkv", "films/Kept.mkv", "../escape"]  # fmt: skip
+            jobs = actions.run(cfg, qbt, {"action": "remove_orphans", "paths": paths})
+            self.assertEqual((jobs[0]["action"], jobs[0]["freed"], jobs[0]["status"]), ("remove_orphans", 10, "done"))
+            self.assertEqual(sorted(os.listdir(links)), ["Late.mkv"])  # empty Pack/ removed, tracker folder kept
+            self.assertTrue(os.path.exists(os.path.join(media, "Outside.mkv")))
+            self.assertTrue(os.path.exists(os.path.join(films, "Kept.mkv")))
+            self.assertEqual(qbt.calls, [])
+            with self.assertRaises(actions.ActionError):
+                actions.run(cfg, qbt, {"action": "remove_orphans", "paths": []})
+            with mock.patch.object(actions.os, "access", return_value=False), self.assertRaises(actions.ActionError):
+                actions.run(cfg, qbt, {"action": "remove_orphans", "paths": paths})
 
 
 class Categories(unittest.TestCase):

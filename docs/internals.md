@@ -108,7 +108,10 @@ Prowlarr's `id`, `enabled`, `failing`) and trackers seen on torrents.
 ### Tracker colours
 
 One colour per tracker, the same in every chart, chip, tile and filter
-(`web/app.js`, `TRACKERS` / `TCOLOR`):
+(`web/app.js`, `TRACKERS` / `TCOLOR`). A tracker is shown as its chip
+(`trackerChip`: tinted background, coloured dot) wherever it is named: library
+rows, ratio tile titles, cross-seed indexers tile (state appended in the
+status colour).
 
 1. declared trackers sorted by Prowlarr `id`, then the others;
 2. `[trackers.colors]` (copied onto the tracker row by `collect.run` as
@@ -153,8 +156,19 @@ before seedbox existed.
 `POST /api/action` → `actions.run`: validates against the last snapshot
 (destination under the roots, not in a link folder…), then calls
 qBittorrent. Media are mounted read-only: every write goes through
-qBittorrent. Jobs (`jobs.json`) track long operations (moves, rechecks,
+qBittorrent, with one exception below. Jobs (`jobs.json`) track long operations (moves, rechecks,
 creations, uploads, matching) and are refreshed from the live torrent list.
+
+**Orphan link files** (`collect.orphan_links`, "Orphan link files" card):
+files in the link folders no torrent uses. The compose file mounts the
+`.cross-seed` folder read-write on top of the read-only media (same
+filesystem, inodes unchanged); `writable` in the snapshot says so. Then the
+card's Delete button sends `remove_orphans` with the listed paths:
+`actions._remove_orphans` recomputes the orphans from qBittorrent at that
+moment, deletes only requested paths still orphan (regular files under a
+link folder), then empty folders below the per-tracker folders, and records
+one finished job. Without the read-write mount the card shows the `rm`
+script to run on the NAS instead.
 
 ### cross-seed database
 

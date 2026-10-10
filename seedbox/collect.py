@@ -693,10 +693,11 @@ def link_folders(cfg):
 
 def orphan_links(cfg, records, limit=500):
     """Files in the link folders that no torrent uses: leftovers of torrents
-    removed without their files. {'count', 'bytes', 'files', 'script'}.
+    removed without their files. {'count', 'bytes', 'files', 'script', 'writable'}.
 
     bytes: space freed by deleting them (files without another hardlink). The
-    script runs from the media share root (the folder holding the link folder)."""
+    script runs from the media share root (the folder holding the link folder).
+    writable: the link folders are mounted read-write, seedbox can delete them."""
     used = {map_path(cfg, r.get("content_path") or "").rstrip("/") for r in records}
     used.discard("")
     found, freed = [], 0
@@ -722,7 +723,14 @@ def orphan_links(cfg, records, limit=500):
     lines = [f'rm -f -- "{f["path"]}"' for f in found]
     lines += [f'find "{os.path.relpath(folder, os.path.dirname(folder))}" -mindepth 2 -type d -empty -delete'
               for folder in link_folders(cfg)] if found else []  # fmt: skip
-    return {"count": len(found), "bytes": freed, "files": found[:limit], "script": "\n".join(lines)}
+    writable = bool(link_folders(cfg)) and all(os.access(f, os.W_OK) for f in link_folders(cfg))
+    return {
+        "count": len(found),
+        "bytes": freed,
+        "files": found[:limit],
+        "script": "\n".join(lines),
+        "writable": writable,
+    }
 
 
 def run(cfg, log, progress=lambda msg: None):

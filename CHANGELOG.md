@@ -1,5 +1,18 @@
 # Changelog
 
+## 2.6.0
+
+- Orphan link files: a Delete button removes them from the dashboard. The
+  compose file now mounts the `.cross-seed` link folder read-write (the rest
+  of the media stays read-only); the list is checked again against
+  qBittorrent before anything is deleted. Without that mount, the card still
+  offers the `rm` script.
+- cross-seed indexers tile: each indexer is its tracker's chip (tracker
+  colour), its state written in the status colour.
+- Ratio tiles: the title is the tracker's chip.
+- Library shared and Volume usage gauges grow with the tile, the value
+  inside the arc.
+
 ## 2.5.3
 
 - Season packs of one show ("Show.2014.S01…", "Show.2014.S02…") are no

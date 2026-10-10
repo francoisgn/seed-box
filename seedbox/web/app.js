@@ -239,13 +239,17 @@ function donut(box, segs, center, sub) {
   box.appendChild(wrap);
 }
 
+// Half-circle gauge as wide as its box allows (.gauge), the value written inside the arc.
 function gauge(box, value, label, color) {
   clear(box);
   var v = Math.max(0, Math.min(100, value || 0)), r = 40, c = Math.PI * r;
-  var svg = sv('svg', {viewBox: '0 0 100 58', width: 112, height: 64, role: 'img', 'aria-label': label + ' ' + pct(v)});
+  var svg = sv('svg', {viewBox: '0 0 100 56', 'class': 'gauge-svg', role: 'img', 'aria-label': label + ' ' + pct(v)});
   svg.appendChild(sv('path', {d: 'M10 50a40 40 0 0 1 80 0', fill: 'none', stroke: 'var(--s3)', 'stroke-width': 10, 'stroke-linecap': 'round'}));
   svg.appendChild(sv('path', {d: 'M10 50a40 40 0 0 1 80 0', fill: 'none', stroke: color, 'stroke-width': 10, 'stroke-linecap': 'round',
     'stroke-dasharray': (v / 100 * c) + ' ' + c}));
+  var t = sv('text', {x: 50, y: 50, 'text-anchor': 'middle', 'class': 'gauge-value'});
+  t.textContent = pct(v);
+  svg.appendChild(t);
   box.appendChild(svg);
 }
 
@@ -425,7 +429,7 @@ function confirmDialog(title, body, okLabel, checkbox, checked) {
 
 var ACTION_TEXT = {inject: 'Inject release', rename: 'Rename file', create: 'Create .torrent', seed: 'Seed created torrent', upload: 'Upload to tracker',
   move: 'Move', recheck: 'Recheck', start: 'Start', skip_extras: 'Skip missing extras', strip_trackers: 'Strip extra trackers', remove: 'Remove',
-  set_category: 'Set category', apply_category: 'Apply category folder'
+  set_category: 'Set category', apply_category: 'Apply category folder', remove_orphans: 'Remove orphan link files'
 };
 function isTransient(t) { return !!(D.transient_qbt && t && (t.content_path + '/').indexOf(D.transient_qbt + '/') === 0); }
 function act(action, hashes, extra, label) {
@@ -502,9 +506,9 @@ function kpi(box, label, iconName, value, unit, foot, onclick) {
 function renderOverview() {
   var cov = $('k-coverage'); clear(cov);
   cov.appendChild(el('div', {'class': 'label'}, [icon('library', 'sm'), 'Library shared']));
-  var g = el('div'); gauge(g, S.coverage_pct, 'Coverage', sharedColor(S.coverage_pct));
-  cov.appendChild(el('div', {'class': 'gauge-wrap'}, [g, el('div', {'class': 'value', text: pct(S.coverage_pct)})]));
-  cov.appendChild(el('div', {'class': 'foot', text: S.everywhere + ' everywhere · ' + S.partial + ' partial · ' + S.none + ' not seeded'}));
+  var g = el('div', {'class': 'gauge'}); gauge(g, S.coverage_pct, 'Coverage', sharedColor(S.coverage_pct));
+  g.appendChild(el('div', {'class': 'foot', text: S.everywhere + ' everywhere · ' + S.partial + ' partial · ' + S.none + ' not seeded'}));
+  cov.appendChild(el('div', {'class': 'gauge-wrap'}, [g]));
 
   renderRatios();
   kpi($('k-problems'), 'Problems', 'warn', S.problems, 'entries', 'Stopped, failed matches, tracker errors, missing extras, redundant uploads, lone films',
@@ -534,8 +538,11 @@ function renderOverview() {
     var over = !okState && i.retry_after && i.retry_after < Date.now();
     var text = okState ? 'ok' : over ? 'limit over since ' + hhmm(i.retry_after) : (i.status || '').toLowerCase().replace('_', ' ') +
       (i.retry_after ? ' until ' + hhmm(i.retry_after) : '');
-    list.appendChild(el('span', {'class': 'badge ' + (okState ? 'ok' : over ? 'info' : 'warn'),
-      title: i.status + (i.retry_after ? ', retry after ' + new Date(i.retry_after).toLocaleString() : '')}, [(i.name || i.key) + ': ' + text]));
+    // The tracker's chip (its colour), the state written in the status colour.
+    var chip = i.key && TNAME[i.key] ? trackerChip(i.key) : el('span', {'class': 'tk'}, [el('i', {style: 'background:' + C.neutral}), i.name || i.key]);
+    chip.appendChild(el('b', {'class': 'st ' + (okState ? 'ok' : over ? 'info' : 'warn'), text: text}));
+    chip.title = (i.name || i.key) + ': ' + (i.status || 'OK') + (i.retry_after ? ', retry after ' + new Date(i.retry_after).toLocaleString() : '');
+    list.appendChild(chip);
   });
   if (!list.firstChild) list.appendChild(el('span', {'class': 'foot', text: 'cross-seed database not mounted'}));
   ix.appendChild(list);
@@ -629,7 +636,11 @@ function renderRatios() {
       '↑ ' + bytes(r.up) + ' · ↓ ' + bytes(r.down) + ' · ' + r.torrents + ' torrents' + (win.length ? '\n' + win.join(' · ') : ''));
     if (r.up || r.down) box.querySelector('.value').style.color = r.down ? ratioColor(r.up / r.down) : C.ok;
     box.title = r.down ? '' : 'Nothing downloaded on this tracker by the torrents in qBittorrent (cross-seeded): the ratio the tracker shows also counts past downloads.';
-    if (TCOLOR[r.key]) box.querySelector('.label').prepend(el('i', {'class': 'dot', style: 'background:' + TCOLOR[r.key]}));
+    if (TNAME[r.key]) {
+      var lab = clear(box.querySelector('.label'));
+      lab.appendChild(trackerChip(r.key));
+      lab.appendChild(document.createTextNode('ratio'));
+    }
   });
 }
 
@@ -972,12 +983,14 @@ function renderSystem() {
     yFmt: function (v) { return rate(v); }, xFmt: tf, tipFmt: tt, empty: empty, label: 'qBittorrent transfer'});
   var vol = $('k-volume'); clear(vol);
   vol.appendChild(el('div', {'class': 'label'}, [icon('disk', 'sm'), 'Volume usage']));
+  var gauges = el('div', {'class': 'gauge-wrap'});
   (M.volumes || []).slice(0, 2).forEach(function (v) {
-    var p = v.total ? v.used / v.total * 100 : 0, g = el('div');
+    var p = v.total ? v.used / v.total * 100 : 0, g = el('div', {'class': 'gauge'});
     gauge(g, p, 'Volume', volumeColor(p));
-    vol.appendChild(el('div', {'class': 'gauge-wrap'}, [g, el('div', {}, [el('div', {'class': 'value', text: pct(p)}),
-      el('div', {'class': 'foot', text: bytes(v.free) + ' free of ' + bytes(v.total)})])]));
+    g.appendChild(el('div', {'class': 'foot', text: bytes(v.free) + ' free of ' + bytes(v.total)}));
+    gauges.appendChild(g);
   });
+  if (gauges.firstChild) vol.appendChild(gauges);
   if (!(M.volumes || []).length) vol.appendChild(el('div', {'class': 'foot', text: 'No volume readable.'}));
 }
 function refreshMetrics() {
@@ -1700,10 +1713,27 @@ function renderOrphans() {
   box.appendChild(el('p', {'class': 'muted', text: o.count + ' file(s) no torrent uses (torrents removed without their files): ' +
     bytes(o.bytes) + ' freed by deleting them; the others are extra names of data kept elsewhere.'}));
   var code = el('code', {text: o.script});
-  box.appendChild(el('div', {'class': 'cell-flex', style: 'justify-content:space-between;flex-wrap:wrap;margin:8px 0'}, [
-    el('span', {'class': 'muted small', text: 'Run on the NAS from the media share root (the folder holding the cross-seed folder). seedbox mounts the media read-only.'}),
-    el('button', {'class': 'btn sm', type: 'button', onclick: function () { copyText(o.script, code); }}, [icon('copy', 'sm'), 'Copy script'])]));
-  box.appendChild(el('div', {'class': 'cmd', style: 'max-height:160px;overflow:auto;align-items:flex-start'}, [code]));
+  // Link folders mounted read-write: seedbox deletes them itself (re-checked against qBittorrent first).
+  if (o.writable && D.actions && LIVE) {
+    var paths = o.files.map(function (f) { return f.path; });
+    var del = el('button', {'class': 'btn sm danger', type: 'button', onclick: function () {
+      confirmDialog('Delete ' + paths.length + ' orphan link file(s)?', 'Frees ' + bytes(o.bytes) + '. The list is checked again against qBittorrent: ' +
+        'a file a torrent uses by then is kept. Library files are never touched; empty folders below each tracker folder go too.', 'Delete')
+        .then(function () {
+          del.disabled = true;
+          return api('api/action', {action: 'remove_orphans', paths: paths}).then(function (r) {
+            toast(r.jobs[0].target + ', ' + bytes(r.jobs[0].freed) + ' freed. Collect again to refresh the list.');
+          }).catch(function (e) { del.disabled = false; toast('Failed: ' + e.message); });
+        }, function () {});
+    }}, [icon('remove', 'sm'), 'Delete ' + paths.length + ' file(s)']);
+    box.appendChild(el('div', {'class': 'cell-flex', style: 'justify-content:space-between;flex-wrap:wrap;margin:8px 0'}, [
+      el('span', {'class': 'muted small', text: o.count > paths.length ? 'The first ' + paths.length + ' of ' + o.count + ' go now; collect again for the rest.' : ''}), del]));
+  } else {
+    box.appendChild(el('div', {'class': 'cell-flex', style: 'justify-content:space-between;flex-wrap:wrap;margin:8px 0'}, [
+      el('span', {'class': 'muted small', text: 'Run on the NAS from the media share root (the folder holding the cross-seed folder): the link folders are mounted read-only, see docs/deployment.md.'}),
+      el('button', {'class': 'btn sm', type: 'button', onclick: function () { copyText(o.script, code); }}, [icon('copy', 'sm'), 'Copy script'])]));
+    box.appendChild(el('div', {'class': 'cmd', style: 'max-height:160px;overflow:auto;align-items:flex-start'}, [code]));
+  }
   box.appendChild(dropList(o.files.slice().sort(function (a, b) { return b.size - a.size; }), function (f) {
     return el('div', {'class': 'item'}, [el('span', {'class': 'badge ' + (f.links === 1 ? 'warn' : ''), text: f.links === 1 ? 'frees ' + bytes(f.size) : f.links + ' links'}),
       el('span', {'class': 'name', title: f.path, text: f.path})]);

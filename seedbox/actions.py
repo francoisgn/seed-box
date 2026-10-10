@@ -12,6 +12,11 @@ knows, remove a torrent. Requests are validated here, whatever the page sent:
 - remove with files: only for cross-seed link torrents whose content no other
   torrent uses, so a library file is never deleted from the dashboard.
 
+One action writes on disk itself: remove_orphans deletes leftover files in the
+cross-seed link folders (the only part of the media mounted read-write). The
+list is recomputed from qBittorrent at that time and only paths of the request
+that are still orphans go; then the empty folders below each link folder.
+
 Each torrent touched gets a job in <output>/jobs.json. Its status is derived
 from qBittorrent's live state when read (a move is done when the save path is
 the target, a removal when the torrent is gone), so the list shows what is
@@ -19,6 +24,7 @@ pending, running, done. The list keeps every open job and the most recent
 finished ones, `KEEP_JOBS` in all (more only while more are open).
 """
 
+import contextlib
 import json
 import os
 import re
@@ -32,6 +38,7 @@ from seedbox.api import ApiError
 from seedbox.config import map_path, unmap_path
 
 ACTIONS = ("move", "recheck", "start", "skip_extras", "strip_trackers", "remove", "set_category", "apply_category")
+MAX_PATHS = 5000
 HASH = re.compile(r"^[0-9a-f]{40}$|^[0-9a-f]{64}$")
 MAX_HASHES = 500
 KEEP_DONE_S = 7 * 86400
@@ -138,6 +145,8 @@ def run(cfg, client, request, declared=None):
     if not cfg.actions:
         raise ActionError("actions are disabled ([service] actions = true to enable)")
     action = request.get("action")
+    if action == "remove_orphans":
+        return _remove_orphans(cfg, client, request)
     if action not in ACTIONS:
         raise ActionError(f"unknown action: {action!r}")
     hashes = request.get("hashes") or []
@@ -227,6 +236,60 @@ def run(cfg, client, request, declared=None):
         jobs = load_jobs(cfg) + created
         _save_jobs(cfg, jobs[-1000:])
     return created
+
+
+def _remove_orphans(cfg, client, request):
+    """Delete the requested link files that no torrent uses now, then the empty folders."""
+    from seedbox import collect  # collect imports qBittorrent and Prowlarr clients: load it only here
+
+    paths = request.get("paths") or []
+    if not isinstance(paths, list) or not paths or len(paths) > MAX_PATHS:
+        raise ActionError(f"paths: a list of 1 to {MAX_PATHS} link file paths")
+    folders = collect.link_folders(cfg)
+    if not folders:
+        raise ActionError("no cross-seed link folder found")
+    if not all(os.access(f, os.W_OK) for f in folders):
+        raise ActionError("the cross-seed link folders are mounted read-only (see docs/deployment.md)")
+    # Fresh list: a torrent added since the snapshot keeps its files.
+    now_orphans = {f["path"] for f in collect.orphan_links(cfg, client.torrents(), limit=None)["files"]}
+    wanted = {str(p) for p in paths} & now_orphans
+    removed, freed = 0, 0
+    for rel in sorted(wanted):
+        for folder in folders:
+            path = os.path.normpath(os.path.join(os.path.dirname(folder), rel))
+            if not _under(os.path.realpath(os.path.dirname(path)), os.path.realpath(folder)):
+                continue
+            try:
+                st = os.lstat(path)
+            except OSError:
+                continue
+            if not os.path.isfile(path) or os.path.islink(path):
+                continue
+            os.remove(path)
+            removed += 1
+            freed += st.st_size if st.st_nlink == 1 else 0
+            break
+    for folder in folders:
+        # Like the script's find -mindepth 2: the per-tracker folders stay.
+        for root, _dirs, _files in os.walk(folder, topdown=False):
+            if os.path.dirname(root) != folder and root != folder and not os.listdir(root):
+                with contextlib.suppress(OSError):
+                    os.rmdir(root)
+    job = {
+        "id": uuid.uuid4().hex[:12],
+        "action": "remove_orphans",
+        "hash": "",
+        "name": f"{removed} orphan link file(s)",
+        "from": "",
+        "target": f"{removed} of {len(paths)} removed",
+        "submitted": time.time(),
+        "status": "done",
+        "freed": freed,
+    }
+    job["finished"] = job["submitted"]
+    with _lock:
+        _save_jobs(cfg, (load_jobs(cfg) + [job])[-1000:])
+    return [job]
 
 
 def add_job(cfg, fields):

@@ -77,7 +77,7 @@ errors (typos do not go unnoticed). Values are never executed, except the
 | `SEEDBOX_VERSION` | version of this checkout | image tag to deploy |
 | `PUID`, `PGID` | uid/gid of the SSH user | container user |
 | `TZ` | `UTC` | container time zone, used by `[service] schedule` |
-| `MEDIA_ROOT` | *(required)* | host path mounted read-only as `/media` |
+| `MEDIA_ROOT` | *(required)* | host path mounted read-only as `/media`, except its `.cross-seed` link folder, mounted read-write so the dashboard can delete orphan link files (remove that line from the compose file to keep everything read-only: the dashboard then offers the `rm` script instead) |
 | `CROSS_SEED_DIR` | empty | cross-seed's config folder on the host, mounted read-only as `/cross-seed`: its database tells what was searched where (upload opportunities) |
 | `PLEX_CONFIG_DIR` | empty | Plex's config folder on the host, mounted read-only as `/plex`: its token (Preferences.xml) and the size of its database and metadata, for the Plex page |
 | `SEEDBOX_PORT` | `8080` | dashboard port on the host |

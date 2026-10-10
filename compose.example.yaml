@@ -22,6 +22,10 @@ services:
       - ./seedbox.toml:/config/seedbox.toml:ro
       - ./secrets:/run/secrets:ro
       - ${MEDIA_ROOT:?set MEDIA_ROOT in .env}:/media:ro
+      # The cross-seed link folder, read-write: the only place seedbox deletes files
+      # itself (orphan link files, from the dashboard). Same filesystem, so the
+      # inodes still match. Remove this line to keep the media fully read-only.
+      - ${MEDIA_ROOT}/.cross-seed:/media/.cross-seed
       - ./data:/data
       # Optional: cross-seed's config folder, read-only, for its search history.
       - ${CROSS_SEED_DIR:-./cross-seed}:/cross-seed:ro
