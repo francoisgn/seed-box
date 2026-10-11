@@ -349,6 +349,12 @@ def correlate(cfg, client, entries, inode_index, progress=lambda msg: None):
             continue
 
         record["entries"] = sorted(targets)
+        # A film alone in a folder of the torrent's own layout (a pack with one
+        # subfolder per film) is where the torrent puts it, not a leftover of a move.
+        layout = {path for path, f in files if "/" in f.get("name", "") and not f["name"].startswith("/")}
+        for i in targets:
+            if entries[i].lone and entries[i].path in layout:
+                entries[i].lone = False
         # A torrent spanning several entries (multi-season pack) is counted on
         # each, but its upload is split so totals stay exact.
         share = record["uploaded"] / len(targets)

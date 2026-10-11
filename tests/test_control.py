@@ -216,6 +216,27 @@ class Diagnosis(unittest.TestCase):
         timeline = collect.timeline(entries, records, [{"key": "t1.example", "name": "T1"}])
         self.assertEqual(timeline[-1]["seeded"], 1)
 
+    def test_lone_film_in_pack_layout(self):
+        pack = os.path.join(self.films, "Trilogy.2005-2010.1080p-GRP")
+        touch(os.path.join(pack, "Part 1", "Film.One.2005.1080p.mkv"), 5)
+        touch(os.path.join(pack, "Part 2", "Film.Two.2008.1080p.mkv"), 5)
+        touch(os.path.join(self.films, "unsorted", "Left.Over.2001.1080p.mkv"), 5)
+        names = ["Trilogy.2005-2010.1080p-GRP/Part 1/Film.One.2005.1080p.mkv",
+                 "Trilogy.2005-2010.1080p-GRP/Part 2/Film.Two.2008.1080p.mkv"]  # fmt: skip
+        common = {"progress": 1, "state": "stalledUP", "category": "films", "save_path": "/video/films"}
+        self.qbt._torrents += [
+            {**common, "hash": "e" * 40, "name": "Trilogy.2005-2010.1080p-GRP"},
+            {**common, "hash": "f" * 40, "name": "Left.Over.2001.1080p.mkv", "save_path": "/video/films/unsorted"},
+        ]
+        self.qbt._files["e" * 40] = [{"name": n, "progress": 1, "priority": 1} for n in names]
+        self.qbt._files["f" * 40] = [{"name": "Left.Over.2001.1080p.mkv", "progress": 1, "priority": 1}]
+        entries, index = library.build(self.cfg)
+        self.assertEqual(sum(e.lone for e in entries), 3)
+        records, _ = collect.correlate(self.cfg, self.qbt, entries, index)
+        collect.diagnose(entries, records, set())
+        lone = sorted(e.name for e in entries if any(i["code"] == "lone_film" for i in e.issues))
+        self.assertEqual(lone, ["unsorted/Left.Over.2001.1080p.mkv"])  # the pack's own subfolders are fine
+
     def test_versions(self):
         touch(os.path.join(self.films, "incoming", "Zoo.2016.2160p.mkv"), 5)
         touch(os.path.join(self.films, "incoming", "Else.2001.mkv"), 5)

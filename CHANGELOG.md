@@ -1,5 +1,12 @@
 # Changelog
 
+## 2.6.1
+
+- "Only film in the grouping folder" is no longer reported for a film whose
+  folder comes from its torrent's own layout (a pack with one subfolder per
+  film): moving it would break the torrent. A single film left alone in a
+  folder by a move is still reported.
+
 ## 2.6.0
 
 - Orphan link files: a Delete button removes them from the dashboard. The

@@ -131,7 +131,11 @@ the fixes the dashboard offers; duplicate groups (same file on a tracker
 twice, several versions of a work, episodes twice). A work's identity is
 `titles.parse` → `title|year|episode or season`: seasons of one show are not
 versions of each other, and an episode split in `part1`/`part2` files
-(`titles.part_key`) is not counted twice. `search_status` crosses
+(`titles.part_key`) is not counted twice. A lone film (only media file of a
+folder whose name is not a release, `library._collect`) is flagged
+`lone_film`, a likely leftover of a move, unless a torrent's own layout put
+it there (`collect.correlate`: the torrent's file path has that folder, e.g.
+a trilogy pack with one subfolder per film). `search_status` crosses
 "missing on tracker X" with the cross-seed database: searched and nothing
 found (upload opportunity), other release present, not searched yet, outside
 cross-seed's data folders.
