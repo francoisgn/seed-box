@@ -1,0 +1,13 @@
+# Defaults for toolbox/video/reencode.sh. Copy to
+# ${XDG_CONFIG_HOME:-$HOME/.config}/toolbox/video.conf (or point TOOLBOX_CONF
+# at another file) and edit. Every value can still be overridden by an option.
+# Plain shell syntax, no spaces around "=".
+
+HEIGHT=1080            # cap the height (never upscales); empty = keep
+CODEC=x265             # x265 (software, best size/quality) | videotoolbox (hardware, fast, bigger) | copy
+CRF=20                 # x265 quality, lower = bigger/better (18 transparent, 22 small, 24 very small)
+PRESET=medium          # x265 speed: fast | medium | slow | slower (slower = smaller, much longer)
+AUDIO_LANGS="fre,eng"  # audio tracks to keep (ISO 639 codes); empty = keep all
+SUB_LANGS="fre,eng"    # subtitle tracks to keep; empty = keep all
+AUDIO=copy             # copy | eac3 (re-encode TrueHD/DTS-HD/FLAC/PCM tracks to E-AC-3, others copied)
+EAC3_BITRATE=640k      # E-AC-3 bitrate for 5.1 (stereo is capped at 224k)

@@ -8,3 +8,8 @@
 - Public repository: no real tracker names, release names or titles (see
   CONTRIBUTING.md). Tracker-specific settings live in the private
   `seedbox.toml`, never here.
+- Toolbox first: for any media, file or workstation job, look in
+  `toolbox/` and use its scripts before writing ad-hoc code. If a script
+  almost does the job, extend it (portable, documented, no private names)
+  rather than redeveloping it in the session. New recurring need = new
+  toolbox script + README/internals entry.

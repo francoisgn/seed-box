@@ -422,6 +422,11 @@ The coverage curve appears from the second run.
 - 🟠 Torrents whose files are missing from disk are matched by path only.
 - 🟠 Two library entries hardlinked to each other count once (first one wins).
 
+## Toolbox
+
+Workstation-side helpers (video inspection and re-encoding with ffmpeg) that
+the service does not need: see [toolbox/README.md](toolbox/README.md).
+
 ## Development
 
 ```sh

@@ -219,6 +219,19 @@ episodes, season 0 left out unless named), then `replace_playlist` deletes
 the playlist of that title and creates it again in order (URIs in chunks of
 80). Pure helpers are tested in `tests/test_disc.py`.
 
+### Toolbox
+
+`toolbox/` holds workstation-side tools the service does not need (not
+shipped in the image): `lib/ui.sh` (statuses), `video/probe.sh` (stream
+summary), `video/inventory.sh` (bulk TSV scan, ffprobe or mediainfo backend) and `video/reencode.sh` (x265, resolution cap, language filter, E-AC-3
+for lossless audio; remux only with `--codec copy`). Rules: portable bash 3.2,
+no reference to any private setup, settings through options or a
+`video.conf` built from `toolbox/video.conf.example`, input never modified,
+output written to `<out>.part` then renamed after a duration check. Install
+instructions and sizing facts live in `toolbox/README.md` and
+`toolbox/video/README.md`: update them with the script. Not wired into
+`seedbox` yet (no category or dashboard action for re-encoded releases).
+
 ## Runbooks
 
 ### Add a tracker
