@@ -3,7 +3,7 @@
 | Script | Purpose |
 |---|---|
 | `probe.sh FILE...` | Size, bitrate, resolution, HDR flag, audio and subtitle tracks with languages |
-| `inventory.sh PATH...` | Bulk scan, one TSV line per video: duration, codec, resolution, audio and subtitle tracks (`--csv` for `;`). ffprobe or mediainfo, so it can run on a NAS that has either |
+| `inventory.sh [--cache FILE] [--exclude NAME] PATH...` | Bulk scan, one TSV line per video: mtime, duration, size, container, codec, resolution, fps, video Mb/s, bits per pixel, HDR, scan type, audio and subtitle tracks (`--csv` for `;`). ffprobe or mediainfo, so it can run on a NAS that has either |
 | `reencode.sh [options] IN OUT.mkv` | Re-encode to x265, cap the resolution, keep only wanted languages |
 
 Setup: [toolbox README](../README.md#install), then optionally
@@ -14,6 +14,12 @@ Setup: [toolbox README](../README.md#install), then optionally
 ```sh
 # Inventory of a library (TSV, redirect to a file)
 ./inventory.sh /path/to/library > videos.tsv
+
+# Rescan cheaply: only files whose path, size or mtime changed are probed
+./inventory.sh --cache videos.tsv --exclude .tmp /path/to/library > /dev/null
+
+# NAS without ffprobe/mediainfo: run it where mediainfo exists (a container)
+# with the folder mounted, e.g. PROBE=mediainfo bash inventory.sh --cache ...
 
 # Inspect first: what is in there?
 ./probe.sh movie.mkv
@@ -36,6 +42,14 @@ for f in in/*.mkv; do ./reencode.sh "$f" "out/$(basename "$f")"; done
 # Print the ffmpeg command without running it
 ./reencode.sh --dry-run in.mkv out.mkv
 ```
+
+Inventory notes: `vbitrate_mbps` is the stream bitrate; when the container
+does not store it (mkv) it is estimated from the stream size, or the overall
+bitrate minus the audio (128 kb/s assumed for an audio track of unknown
+bitrate). `bpp` = video bit/s / (width x height x fps): below about 0.02 an
+AVC picture is starved, 0.05 to 0.10 is typical of an efficient encode. With
+`--cache` the TSV is rewritten at the end (vanished files are dropped,
+unreadable ones are retried at each scan). `mtime` is epoch seconds.
 
 Run long jobs under `caffeinate -i` on a Mac so it does not sleep.
 

@@ -223,7 +223,7 @@ the playlist of that title and creates it again in order (URIs in chunks of
 
 `toolbox/` holds workstation-side tools the service does not need (not
 shipped in the image): `lib/ui.sh` (statuses), `video/probe.sh` (stream
-summary), `video/inventory.sh` (bulk TSV scan, ffprobe or mediainfo backend) and `video/reencode.sh` (x265, resolution cap, language filter, E-AC-3
+summary), `video/inventory.sh` (bulk TSV scan, ffprobe or mediainfo backend: mtime, container, fps, video Mb/s, bits per pixel, HDR, scan type, audio and subtitle tracks; `--exclude NAME` skips folders, `--cache FILE` re-probes only files whose path, size and mtime changed, so a rescan of a big library is cheap; the cache is the TSV itself, a header change invalidates it; on a NAS without ffprobe it can run inside a container that ships mediainfo, with `PROBE=mediainfo`) and `video/reencode.sh` (x265, resolution cap, language filter, E-AC-3
 for lossless audio; remux only with `--codec copy`). Rules: portable bash 3.2,
 no reference to any private setup, settings through options or a
 `video.conf` built from `toolbox/video.conf.example`, input never modified,
