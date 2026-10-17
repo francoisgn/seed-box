@@ -4,7 +4,8 @@
 |---|---|
 | `probe.sh FILE...` | Size, bitrate, resolution, HDR flag, audio and subtitle tracks with languages |
 | `inventory.sh [--cache FILE] [--exclude NAME] PATH...` | Bulk scan, one TSV line per video: mtime, duration, size, container, codec, resolution, fps, video Mb/s, bits per pixel, HDR, scan type, audio and subtitle tracks (`--csv` for `;`). ffprobe or mediainfo, so it can run on a NAS that has either |
-| `reencode.sh [options] IN OUT.mkv` | Re-encode to x265, cap the resolution, keep only wanted languages |
+| `reencode.sh [options] IN OUT.mkv\|OUT.mp4` | Re-encode to x265, cap the resolution, keep only wanted languages, drop duplicate audio (`--dedupe-audio`), make audio mp4-friendly (`--audio compat`), encode an excerpt (`--start S --duration N`) |
+| `queue.sh [--remote HOST] --home DIR` | Run a queue of `reencode.sh` jobs on this machine for files that live on a NAS: fetch, encode, push back, record the state. Sequential, resumable, run it in the background |
 
 Setup: [toolbox README](../README.md#install), then optionally
 `cp ../video.conf.example ~/.config/toolbox/video.conf`.
@@ -73,3 +74,31 @@ A re-encoded file is a different file: it no longer matches the torrent it
 came from and cannot be cross-seeded. Keep the source where the torrent seeds
 from until its tracker's minimum seeding time is met, work on a copy, and
 decide separately what happens to the original.
+
+## Encoding on a workstation for files on a NAS
+
+A low-power NAS cannot encode HEVC (a Celeron-class CPU is some 40 times slower
+than a recent laptop and has no 10-bit HEVC hardware). Copy the file to the
+workstation, encode there, copy the result back: a few minutes of transfer on
+gigabit LAN against hours saved. Measured on an Apple M4 (10 cores), 1080p
+10-bit libx265: preset `medium` about 1.2x real time, `slow` about 0.36x.
+
+`queue.sh` automates it. In the folder given with `--home` (on the NAS when
+`--remote` is used) put `queue.tsv`:
+
+```
+id <TAB> source path <TAB> destination path <TAB> reencode.sh options
+```
+
+Run it detached and come back later; it records progress in `state.tsv` (one
+line per change: id, status, time, detail), `STATUS` (`running` then
+`finished ... done=N failed=M`) and `logs/<id>.log`:
+
+```sh
+nohup caffeinate -i ./queue.sh --remote nas --home /path/to/home >/dev/null 2>&1 &
+cat /path/to/home/STATUS        # on the NAS: is it finished?
+```
+
+Rerunning the same command resumes: ids already `done` are skipped. Outputs go
+to the destination as `.part` and are renamed once their size is verified; the
+source is never modified. Only ids appear on the console.

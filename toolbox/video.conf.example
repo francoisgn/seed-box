@@ -9,5 +9,5 @@ CRF=20                 # x265 quality, lower = bigger/better (18 transparent, 22
 PRESET=medium          # x265 speed: fast | medium | slow | slower (slower = smaller, much longer)
 AUDIO_LANGS="fre,eng"  # audio tracks to keep (ISO 639 codes); empty = keep all
 SUB_LANGS="fre,eng"    # subtitle tracks to keep; empty = keep all
-AUDIO=copy             # copy | eac3 (re-encode TrueHD/DTS-HD/FLAC/PCM tracks to E-AC-3, others copied)
+AUDIO=copy             # copy | eac3 (TrueHD/DTS-HD/FLAC/PCM to E-AC-3) | compat (anything mp4-unfriendly to AAC 256k or AC-3 640k)
 EAC3_BITRATE=640k      # E-AC-3 bitrate for 5.1 (stereo is capped at 224k)

@@ -229,7 +229,9 @@ no reference to any private setup, settings through options or a
 `video.conf` built from `toolbox/video.conf.example`, input never modified,
 output written to `<out>.part` then renamed after a duration check. Install
 instructions and sizing facts live in `toolbox/README.md` and
-`toolbox/video/README.md`: update them with the script. Not wired into
+`toolbox/video/README.md`: update them with the script. `video/queue.sh` runs `reencode.sh` jobs from a queue file for files on another
+host (ssh): fetch, encode, push, state in `state.tsv`/`STATUS`, resumable; the
+source is never modified. Not wired into
 `seedbox` yet (no category or dashboard action for re-encoded releases).
 
 ## Runbooks
