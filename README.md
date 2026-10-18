@@ -1,0 +1,474 @@
+<p align="center">
+  <img src="seedbox/web/logo.svg" width="280" alt="Clawd watering seeds that sprout in a row">
+</p>
+
+<h1 align="center">seed-box</h1>
+
+<p align="center"><b>Seedbox control plane</b> for qBittorrent, cross-seed and Prowlarr</p>
+
+A dashboard that answers one question, **is my library actually shared on my
+trackers, and are all my trackers fed?**, then helps fix what is not:
+duplicates, stopped torrents, failed cross-seed matches, torrents deleted by
+their tracker, unreadable files, releases hidden under another name, all applied through qBittorrent in one click.
+
+It bridges three sources that do not talk to each other:
+
+| Source | What it tells |
+|---|---|
+| Disk | what the library contains (entries, sizes) |
+| qBittorrent | which torrents seed which files, on which trackers, how much they uploaded |
+| Prowlarr *(optional)* | which trackers exist, whether they are enabled or failing, their grabs |
+
+Output: a self-contained HTML dashboard, a CSV inventory, CSV history (one line
+per run, overall and per tracker) and a JSON snapshot. Standard library only,
+one container.
+
+## How it works
+
+Torrents are matched to library entries **by inode**, not by name or path.
+With cross-seed or any hardlink setup, the file seeded by the client and the
+file in the organised library are the same data on disk:
+
+```
+/media/movies/Some.Collection/Some.Entry/file.mkv   <- library
+          | same inode (hardlink)
+/media/downloads/.cross-seed/tracker-a/Other.Name/x.mkv   <- seeded by qBittorrent
+```
+
+An entry stays recognised after being renamed or moved. The torrent file list
+comes from the qBittorrent API, so a torrent only claims its own files.
+
+An **entry** is one work as stored: a film file (with its sidecars and
+CD1/CD2 parts) when films sit side by side in a folder (`downloads`,
+`unsorted`…), a folder when it holds one film with extras, a season, or a
+numbered collection (`Anime-A - 001…`). Grouping folders are walked through.
+
+| Status | Meaning |
+|---|---|
+| 🟢 seeded everywhere | on every enabled Prowlarr tracker |
+| 🔵 partially seeded | on some trackers |
+| 🟠 downloading | torrents exist but none is at 100 % |
+| ⚪ on disk, not seeded | no torrent at all |
+
+For trackers, announce hosts (qBittorrent) and indexer URLs (Prowlarr) are
+reduced to their domain and merged. The dashboard flags:
+
+- 🟠 a tracker in Prowlarr that seeds nothing from the library,
+- 🟠 a tracker seeding content but missing from Prowlarr (cross-seed will not search it),
+- 🔴 a tracker Prowlarr disabled after errors,
+- per entry, **"missing on tracker X"**: content you could still share there.
+  In the library, one chip per declared tracker (each tracker keeps one
+  colour everywhere): the selected trackers must seed the entry, the others
+  must not. All but one selected: what that tracker misses and all the
+  others have.
+
+### Diagnosis and fixes
+
+| Issue | Cause | Fix from the dashboard |
+|---|---|---|
+| Same file, same tracker | a tracker holds several uploads of one release; cross-seed injects each | remove the extras, the most seeded complete one is kept |
+| Several versions | same title and year, different files (1080p and 2160p, or in two folders) | pick one; the other has a move or `rm` hint |
+| Episodes twice | same episode number twice in a season folder | by hand |
+| Failed match | cross-seed partial match stopped at 0 %: the data did not verify | recheck, or remove |
+| Stopped | a torrent neither seeds nor downloads | start, recheck |
+| Missing extras | a cross-seed match waits for a `.nfo`/`.jpg` nobody seeds (files stay `.!qB`), each on pieces of its own | skip them (file priority 0) |
+| Never finishes | a cross-seed match short of 100 %: the extras it lacks share a piece with the video (skipping them changes nothing), or pieces of the video itself are missing, and no seeder for `dead_partial_days` (7 by default). It seeds nothing | remove them all in one click (link files deleted, library kept), then paste the copied `infoHash:` lines into cross-seed's `blockList` so it does not inject them again |
+| Video differs | a cross-seed match whose video, hardlinked to the library, fails some pieces: the release differs from your file, and finishing it would rewrite the library file through the hardlink | remove it, then block its infohash in cross-seed |
+| Lone film | the only film of a grouping folder: fine while moving, not as a lasting state | move it |
+| Category | torrent not in the category of its folder, cross-seed link without the link category, finished download still in the transient folder | set the matching category, or apply the category folder (qBittorrent moves it) |
+| Outside declared trackers | tracker unknown to Prowlarr (public, one-off) | clean it when done |
+| Extra trackers | a torrent of a declared tracker that also announces to trackers Prowlarr does not know (public trackers shipped in the `.torrent`): it announces to destinations you never configured, exposing the torrent and your IP | strip them: announces stay limited to your declared trackers |
+| Outside the library | torrent matched to no entry: library copy deleted (only cross-seed links left), other share, missing files. Unfinished downloads in `transient_dir` are the download queue: only counted, not listed | shown with the reason |
+| Deleted by the tracker | the tracker answers "unregistered" or 404 for this torrent (a 404 on every torrent of a tracker means its announce URL changed, and is not flagged) | remove them all in one click |
+| Unreadable file | a media file nobody can read (mode 000): its torrents look fine until a peer asks, then fail with `file_open` | `seedbox check` lists them; `chmod a+r` |
+
+Moves go through qBittorrent (`setLocation`), one at a time on its side, so
+torrents follow their files and cross-seed hardlinks stay valid. A removal
+never deletes a library file: files can only be deleted for cross-seed link
+torrents whose content no other torrent uses.
+
+### Release matching
+
+cross-seed searches by name. A file renamed on disk, or a film released under
+its French title and stored under its English one, stays "absent" everywhere
+although the tracker has it. **Find on trackers** (in an entry's detail, with
+actions enabled) searches the other way:
+
+1. **Search**: every title TMDB knows the film under (French, English,
+   original) with its year, plus its IMDb id where the indexer supports it, on
+   each Prowlarr indexer. Some indexers return 50 results at most, fewer than a
+   popular title has releases: title + year + release group, then + resolution,
+   are searched first. A result of **exactly the file's size** is a candidate;
+   the TMDB id can be given when the name is too far off.
+2. **Verify**: fetch the candidate's `.torrent` and hash a sample of its pieces
+   from the local file. Same SHA-1, same bytes: the release is proven, whatever
+   the file is called.
+3. **Apply**, as a background job:
+   - **inject**: add the torrent to qBittorrent, stopped, pointing at the library
+     file; start it only if the recheck confirms 100 % (nothing is ever
+     downloaded into the library);
+   - **rename**: rename the library file to the release name (suggestions: the
+     torrent's own file name first, then the other trackers' spellings) through
+     qBittorrent, the other torrents on that file following; sidecars (`.srt`,
+     `.nfo`) get a ready-to-run `mv` script.
+
+`seedbox match "part of the name" [--tmdb ID] [--verify]` does steps 1 and 2 from
+the command line. A TMDB API key (free) is optional: without it, the title
+parsed from the file name is searched.
+
+### Uploading to a tracker
+
+An entry missing on a declared tracker can be uploaded there: **Create a
+.torrent for** (in its detail, with actions enabled, one button per tracker it
+is missing on) builds the `.torrent` on the server, where the files are. Only
+the `.torrent` goes to the tracker; the data leaves by seeding.
+
+- **Announce URL**: taken from a torrent of that tracker already in qBittorrent
+  (passkey included), nothing to configure. The `source` field is copied from
+  that tracker's `.torrent` files when they have one.
+- **Content**: the film file alone (sidecars stay out), or the whole folder of a
+  season or a film with extras, NAS metadata (`@eaDir`, dot files) left out.
+  Private flag set, piece size from the total size (256 KiB to 16 MiB).
+- **Release form and `.nfo`**: before creating, a form shows what the upload
+  form of the tracker asks for, prefilled from the release name (title, year,
+  language, source, group) and from [MediaInfo](https://mediaarea.net/MediaInfo)
+  (resolution, video and audio codecs, channels, bit depth, HDR / Dolby
+  Vision; the audio tracks give the language when the name does not).
+  Title, year, language, resolution and codecs are mandatory: fill in what is
+  missing. The `.nfo` (these fields, the audio and subtitle tracks, then the
+  full MediaInfo report) comes beside the `.torrent`, not inside it.
+- **Hashing** reads every byte once, as a background job, one entry at a time.
+  A creation still queued can be cancelled from the jobs list; a restart of
+  seedbox stops the queue (those jobs show as failed, start them again).
+- The page **downloads the `.torrent` and the `.nfo` as soon as they are ready**. Upload it to the tracker by
+  hand, then **Seed** it from Activity, jobs: the torrent is added to
+  qBittorrent on the library files, hash check skipped. If the tracker hands
+  back another `.torrent` (a dupe, a rewritten one), add that one to qBittorrent
+  instead.
+
+A copy stays in `<output>/created/` for the Seed button, owner-only: it holds
+the passkey, so the dashboard serves it only through its API, actions enabled.
+At most `output.created_max` (10) are kept: the next one replaces the oldest, or
+delete them from the jobs list once uploaded.
+
+### Checks against a tracker
+
+Before creating or uploading a film for a tracker it is missing on, the
+library checks it there (**Check on** a tracker, from the selection bar or an
+entry's detail), on every tracker with a Prowlarr indexer:
+
+- targeted searches on that tracker through Prowlarr (title + year + group,
+  + resolution, then title + year): a release of the same size (±1 %) or the
+  same group and resolution blocks it; a tracker answering nothing at all
+  (down, rate limited) gives "search failed", never "clear";
+- MediaInfo against the name: a language, resolution or codec the file does
+  not have blocks it (a name says what the file holds); spaces, a missing year
+  or resolution are pointed out;
+- TMDB: the film the tracker should identify from the name, with its link;
+- a release the tracker already has: **Verify** it against the local file and
+  **Inject** it (release matching), or **Keep for review**: its `.torrent`
+  goes to `<output>/review/` with a JSON of the local entry (paths, files on
+  disk, files in the torrent), to be matched by hand.
+
+Results are kept in `<output>/checks.json`, by file and tracker, across
+restarts and collections: a column and filter chips in the library show them,
+with resolution and language chips.
+
+### Upload API
+
+A tracker with an upload API (`.torrent` and `.nfo` sent over HTTPS, the
+release page built by the tracker) gets an **Upload** section on the library
+page once `[upload]` names it. seedbox knows no tracker: `[upload.api]`
+describes that tracker's API as its documentation does (paths, headers, form
+fields, answer codes, limits; see [`seedbox.example.toml`](seedbox.example.toml)),
+with placeholders such as `{tmdb_id}` or `{year}` for values taken from the
+film. The section shows the API's answer to the probe and the torrents kept
+for review;
+
+**Send**, films checked on that tracker only, one at a time: the `.torrent` and `.nfo` are
+  created as above, sent, and on acceptance the same torrent is seeded from the
+  library file. Answers marked for review stop there and are never retried;
+  the rate limit and `Retry-After` are respected; each answer is logged in
+  `uploads.jsonl`.
+
+The `.nfo` opens with a drawing of the seedbox mascot watering seedlings and
+"automated through seedbox" (no link), then the release, its fields, its
+video, audio and subtitle tracks, and MediaInfo's full report; the drawing
+goes if the tracker's size limit requires it, and the text never holds a path
+of the machine.
+
+The passkey goes only in the configured headers: taken from the tracker's
+announce URL in qBittorrent (or `SEEDBOX_UPLOAD_PASSKEY`), never in a URL, a
+form field, a log or the page. Sending stays off (`[upload] send = false`)
+until the tracker approved the account and you checked its upload rules; the
+page shows the API's answer to the probe.
+
+### Live panels
+
+Served by `seedbox run`, the dashboard also shows:
+
+- **qBittorrent activity**: queued moves and removals with their progress,
+  rechecks (running, waiting their turn) and bytes left to read, the disk I/O
+  queue and the torrents causing it, latest warnings and errors from its log,
+  busy torrents, jobs sent from the dashboard (the 60 most recent, more
+  while more are still open);
+- **system**: CPU and IO wait, busiest disk, memory, transfer, volume usage,
+  sampled every 5 minutes from `/proc` (host-wide in a container) and one light
+  qBittorrent call, kept 14 days in `metrics.jsonl`;
+- **seeded entries over time**, per tracker and stacked, rebuilt from the
+  torrents' add dates, so the trend is there from the first run.
+
+Auto refresh reloads live panels and metrics every 90 s. The search box of
+the Library section filters entries by name, folder or tracker.
+
+### Plex page
+
+With `[plex] url` set (optional), a third page, `plex.html`, reads Plex's own
+API. Plex and seedbox see the media under the same `/media` paths, so every
+film Plex plays is matched to the library entry that holds it.
+
+- **Libraries**: size on disk, films or series and episodes, watched, last
+  scan, unmatched items, missing files, per library and in all (how much a
+  library takes, at a glance), plus what is started and not finished;
+- **Playback**: what plays now, on which player, Direct Play or transcode and
+  the bitrate, next to the disk load at the same moment and qBittorrent's
+  upload; Plex streams are sampled with the system metrics, so the charts
+  show over days whether the disks keep up;
+- **Never watched**: films never played, biggest first, with their seeding
+  status and trackers: the list for the next purge;
+- **Transcoding risks** per player (PS5, Apple TV 4K): AVI/XviD, AV1, TrueHD
+  and DTS (first audio track), PGS/ASS subtitles, Dolby Vision profiles 5 and 7.
+  A NAS that cannot transcode 4K plays those better on the other player.
+  Audio and subtitle tracks are read in the background, once per film;
+- **Recently added** and the **server**: version, update available,
+  maintenance window and tasks, scans running, and with Plex's config folder
+  mounted, the size of its database, metadata and thumbnails.
+
+The token comes from `[plex] token` / `SEEDBOX_PLEX_TOKEN`, or from Plex's
+`Preferences.xml` when its config folder is mounted read-only (`PLEX_CONFIG_DIR`).
+
+### .torrent and .nfo for a folder outside the library
+
+`seedbox make` needs no config and never touches the library or qBittorrent:
+it hashes any file or folder into a private `.torrent` and writes the same
+`.nfo` as the dashboard (needs `mediainfo`). The announce URL carries your
+passkey: pass it by option or environment, never commit it.
+
+```sh
+export SEEDBOX_ANNOUNCE='https://tracker.example/PASSKEY/announce' SEEDBOX_SOURCE=EXAMPLE
+python3 -m seedbox make --each /path/to/sources --out ~/torrents   # one per child
+python3 -m seedbox make "/path/to/Some Film (1999)" --set language=MULTI
+```
+
+For several trackers, hash once with `--trackers FILE` (lines `label<TAB>announce<TAB>source`, keep it private): one `<name>.<label>.torrent` each.
+
+Outputs (`<name>.torrent`, `<name>.nfo`, mode 600) go to `--out`, never into
+the source folder. Missing mandatory `.nfo` fields are reported; fill them
+with `--set KEY=VALUE`.
+
+### Physical discs in Plex
+
+Discs you own (Blu-ray, DVD) can sit in Plex next to the files: one short
+placeholder video per disc, in a Plex movie library kept for them. Plex
+matches the film from the folder name, so the library shows the real poster
+and summary, collections and playlists can include the disc, and playing it
+shows the clip: time to put the disc in.
+
+`seedbox disc` runs on your computer (not in the container), with `ffmpeg`,
+`yt-dlp` for clips, and SSH access to the host holding the folder:
+
+```sh
+python3 -m seedbox disc add "Some Film" 1999                 # search "<title> <year> opening scene", pick a clip
+python3 -m seedbox disc add "Some Film" 1999 --url URL --start 12 --length 90
+python3 -m seedbox disc add "Some Film" 2001 --edition 4K --collection "Some Saga"
+python3 -m seedbox disc add "Some Film" 1999 --card          # no clip: a black card with the title
+python3 -m seedbox disc list
+python3 -m seedbox disc playlist "Some Saga" --dry-run   # (re)build a playlist from [[physical.playlists]]
+```
+
+Each disc becomes `<dir>/Some Film (1999)/Some Film (1999).mkv` (H.264 +
+AAC, plays everywhere without transcoding; `--edition` adds Plex's
+`{edition-…}` tag). Then Plex scans that folder, the matched title is shown
+(check it is the right film) and the item is tagged with the collections.
+`--dry-run` shows the chosen clip and changes nothing; an existing disc is
+kept unless `--force`. The card is a subtitle over a black screen: ffmpeg
+builds without `drawtext` work.
+
+Settings: `[physical]` in the same TOML file (default
+`~/.config/seedbox/seedbox.toml` or `$SEEDBOX_CONFIG`), plus `[plex] url`:
+
+| Key | Meaning |
+|---|---|
+| `host` | SSH alias of the host holding the folder (empty: a local folder) |
+| `dir` | the folder of the physical-disc library, on that host |
+| `plex_dir` | the same folder as Plex sees it (default: `dir`) |
+| `plex_token_cmd` | shell command printing the Plex token (else `[plex] token`, `SEEDBOX_PLEX_TOKEN`) |
+| `length`, `search_suffix`, `card_text`, `collection` | seconds kept (150), search words after the year, card line, collection for every disc |
+
+Keep that folder out of `[library] roots` and of cross-seed's data dirs:
+placeholders are not media to seed.
+
+**Playlists across libraries** (a saga in story order, films and episodes
+mixed, discs included): each `[[physical.playlists]]` has a `title` and
+`steps`, `"movie: Title"` or `"show: Title | 1,2"` (seasons; specials never).
+A step is looked up in every Plex library of its kind by displayed or original
+title (exact first, else the shortest title containing it); steps not in Plex
+yet are listed and skipped. `seedbox disc playlist "Some Saga"` replaces the
+playlist of that title: rerun it after adding a disc or a season.
+
+```toml
+[[physical.playlists]]
+title = "Some Saga in order"
+steps = ["show: Some Prequel Show", "movie: Some Film", "show: Some Show | 1,2", "movie: Some Film Returns"]
+```
+
+## Deploy (container, remote host)
+
+From your machine, over SSH, with your host details and secrets kept in a
+local config that never reaches the repo:
+
+```sh
+mkdir -p ~/.config/seedbox
+cp deploy/deploy.conf.example ~/.config/seedbox/deploy.conf   # host, SSH, secrets commands
+cp seedbox.example.toml ~/.config/seedbox/seedbox.toml         # roots, path map, schedule
+deploy/deploy.sh --print-config
+deploy/deploy.sh                 # upload, pull, start, seedbox check
+```
+
+Afterwards, `git pull && deploy/deploy.sh` upgrades. The deploy config can
+`include` files from your dotfiles. Details, requirements on the host and
+options: [docs/deployment.md](docs/deployment.md).
+
+### By hand, on the host
+
+```sh
+cp compose.example.yaml compose.yaml
+cp .env.example .env                  # host values: version, PUID/PGID, TZ, paths
+cp seedbox.example.toml seedbox.toml  # roots, path map, schedule
+mkdir -p secrets && chmod 700 secrets
+printf '%s' 'qbt-password' > secrets/qbt_password
+printf '%s' 'prowlarr-api-key' > secrets/prowlarr_api_key   # empty file if unused
+printf '%s' 'tmdb-api-key' > secrets/tmdb_api_key           # optional, release matching
+chmod 600 secrets/*
+docker compose run --rm seedbox check    # validate every source
+docker compose up -d                     # first collection now, then on schedule; serve on :8080
+docker compose exec seedbox seedbox status  # what qBittorrent is busy with
+```
+
+`seedbox check` tests each source separately (library roots, path mapping,
+qBittorrent, Prowlarr, output dir) and is the first thing to run.
+
+**Constraint:** seedbox must see the library and the torrent data on the same
+filesystem as qBittorrent, otherwise inodes cannot match. Mount their common
+parent, read-only, and map the paths qBittorrent reports with
+`[qbittorrent.path_map]`.
+
+The dashboard has no authentication: keep it on the LAN or behind a reverse
+proxy with auth. Actions (move, recheck, start, remove) are off unless
+`[service] actions = true`; they only accept JSON POSTs carrying an
+`X-Seedbox` header from the same origin, which a page from another site cannot
+send.
+
+## Without a container
+
+Python 3.11+, no dependency:
+
+```sh
+python3 -m seedbox -c seedbox.toml check
+python3 -m seedbox -c seedbox.toml collect   # one run, for cron
+python3 -m seedbox -c seedbox.toml run       # service: serve + collect on schedule
+```
+
+## Configuration
+
+One TOML file holds connections, secrets and schedule
+([`seedbox.example.toml`](seedbox.example.toml)), found through
+`--config`, `$SEEDBOX_CONFIG`, `./seedbox.toml` or `/config/seedbox.toml`.
+Environment variables override it. Any of them can be read from a file with
+the `_FILE` suffix (Docker secrets), e.g. `SEEDBOX_QBT_PASSWORD_FILE`.
+
+| Variable | TOML key | Default |
+|---|---|---|
+| `SEEDBOX_ROOTS` (comma-separated) | `library.roots` | *(required)* |
+| `SEEDBOX_MAX_DEPTH` | `library.max_depth` | `4` |
+| `SEEDBOX_QBT_URL` | `qbittorrent.url` | `http://localhost:8080` |
+| `SEEDBOX_QBT_USERNAME` | `qbittorrent.username` | `admin` |
+| `SEEDBOX_QBT_PASSWORD` | `qbittorrent.password` | empty = no login (whitelisted client) |
+| | `qbittorrent.path_map` | none |
+| `SEEDBOX_PROWLARR_URL` | `prowlarr.url` | empty = disabled |
+| `SEEDBOX_PROWLARR_API_KEY` | `prowlarr.api_key` | |
+| `SEEDBOX_TMDB_API_KEY` | `tmdb.api_key`: film titles for release matching | empty = title from the file name |
+| | `trackers.aliases` | none |
+| | `trackers.colors`: tracker → palette name or `#rrggbb` | palette in Prowlarr id order |
+| `SEEDBOX_OUTPUT_DIR` | `output.dir` | `/data` |
+| | `output.csv_delimiter` | `,` |
+| | `output.created_max` | `10` |
+| `SEEDBOX_SCHEDULE` | `service.schedule` (`"04:00"`, `"sun 04:00"`, `"mon,thu 03:30"`) | empty |
+| `SEEDBOX_INTERVAL_HOURS` | `service.interval_hours` (used when no schedule) | `24` |
+| `SEEDBOX_PORT` | `service.port` | `8080` |
+| `SEEDBOX_ACTIONS` | `service.actions`: dashboard actions through qBittorrent | `false` |
+| `SEEDBOX_METRICS_INTERVAL` | `service.metrics_interval` (seconds, `0` = off) | `300` |
+| | `service.metrics_days`: metrics kept | `14` |
+| | `library.link_dirs`: cross-seed link folder names | `[".cross-seed"]` |
+| | `library.transient_dir`: folder of partial and one-off downloads | none |
+| | `cross_seed.db`, `cross_seed.link_category` | `/cross-seed/cross-seed.db`, `cross-seed-link` |
+| | `upload.tracker` and `[upload.api]`: tracker with an upload API, and that API | none = off |
+| `SEEDBOX_UPLOAD_PASSKEY` | `upload.passkey` | from the announce URL in qBittorrent |
+| | `upload.send`: real uploads, once approved and the rules checked | `false` |
+| | `upload.nfo`: `seedbox` (header, summary, MediaInfo) or `mediainfo` (report only) | `seedbox` |
+| | `upload.roots`: roots holding films | all, series told by name |
+
+## Output
+
+| File | Content |
+|---|---|
+| `index.html` | the dashboard, works offline |
+| `inventory.csv` | current state, one line per entry |
+| `history.csv` | one line per run: coverage, sizes, upload |
+| `history-trackers.csv` | one line per run and tracker |
+| `snapshot.json` | everything above, for other tools |
+| `jobs.json` | actions sent from the dashboard and their status |
+| `created/` | the last `.torrent` files created for upload (passkey inside, not served as files) |
+| `metrics.jsonl` | host and qBittorrent samples |
+| `uploads.jsonl` | upload API answers: name, size, infohash, code, torrent id |
+
+The coverage curve appears from the second run.
+
+## Known limits
+
+- 🟠 An orphan may simply not have been searched by cross-seed yet.
+- 🟠 A folder holding both media files and sub-folders of other content is one entry.
+- 🟠 Torrents whose files are missing from disk are matched by path only.
+- 🟠 Two library entries hardlinked to each other count once (first one wins).
+
+## Toolbox
+
+Workstation-side helpers (video inspection and re-encoding with ffmpeg) that
+the service does not need: see [toolbox/README.md](toolbox/README.md).
+
+## Development
+
+```sh
+pre-commit install
+python3 -m unittest discover -s tests -v
+```
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
+
+## License
+
+[PolyForm Strict 1.0.0](LICENSE): source-available, **not** open source.
+
+- You may **use** the tool for any noncommercial purpose, e.g. on your own seedbox.
+- You may **not** copy, redistribute, reuse the code elsewhere, modify it
+  outside of contributions, use it commercially, or build a competing product.
+- **Contributions are welcome**: forking and changing the code to submit an
+  issue or a pull request is explicitly allowed, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Support
+
+If this helps you keep your ratio healthy, you can buy me a coffee:
+
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-francoisgn-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/francoisgn)
