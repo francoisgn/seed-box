@@ -16,6 +16,7 @@
 #   --duration N      ... and keep N seconds (skips the duration check)
 #   --tonemap         HDR -> SDR (needs an ffmpeg built with zimg/zscale)
 #   --dry-run         print the ffmpeg command and stop
+# The container title tag is always cleared (a player shows the file name instead of the old release title).
 # Defaults come from video.conf (see toolbox/video.conf.example).
 set -eu
 export LC_ALL=C
@@ -180,7 +181,7 @@ tmp="$out.part"
 # shellcheck disable=SC2086 # the argument strings are built above on purpose
 set -- ffmpeg -nostdin -hide_banner -loglevel error -y ${START:+-ss "$START"} -i "$in" ${LIMIT:+-t "$LIMIT"} $maps \
   ${vf:+-vf "$vf"} $vargs -c:a copy $audio_args -c:s copy \
-  -map_chapters 0 -map_metadata 0 -progress pipe:1 -nostats $fmtargs -f $fmt "$tmp"
+  -map_chapters 0 -map_metadata 0 -metadata title= -progress pipe:1 -nostats $fmtargs -f $fmt "$tmp"
 
 if [ "$DRY" = 1 ]; then
   printf '%s ' "$@"; printf '\n'

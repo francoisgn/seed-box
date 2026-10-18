@@ -135,6 +135,10 @@ push_pass() {
   each_job encoded | while IFS="$(printf '\t')" read -r id src dst opts; do
     outname="$(basename "$dst")"; o="$WORK/out/OK/${id}__$outname"
     [ -f "$o" ] || continue # not validated yet: it stays in out/ until you move it to out/OK/
+    # safety net: no old release title inside the file (a player would show it instead of the file name)
+    if [ -n "$(ffprobe -v error -show_entries format_tags=title -of csv=p=0 "$o" 2>/dev/null)" ]; then
+      ffmpeg -v error -nostdin -y -i "$o" -map 0 -c copy -map_chapters 0 -metadata title= -movflags +faststart -f mp4 "$o.fix" && mv "$o.fix" "$o" || { rm -f "$o.fix"; continue; }
+    fi
     osize="$(wc -c <"$o" | tr -d ' ')"
     if rcopy_to "$o" "$dst.part" && [ "$(rsize "$dst.part")" = "$osize" ] && rrun mv "$dst.part" "$dst"; then
       meta="$(awk -F'\t' -v k="$id" '$1 == k && $2 == "encoded" { m = $4 } END { print m }' "$STATE")"

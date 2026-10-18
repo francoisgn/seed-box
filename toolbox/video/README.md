@@ -8,6 +8,7 @@
 | `pipeline.sh COMMAND [options]` | Offline-tolerant encode pipeline for files on a NAS: `sync`, `fetch` (NAS to an `in/` folder), `encode` (local only, one at a time), `push` (results in `out/` back to the NAS when reachable), `run`, `status`. State is local, every stage is resumable, so a trip away from the NAS loses nothing |
 | `bd-main.sh [--top N] DISC_FOLDER` | Main title stream of a Blu-ray folder (largest `.m2ts`) and the next ones, to check there is no close second |
 | `retag-name.sh OLD VCODEC ACODEC HEIGHT` | Name for a re-encoded copy: origin team dropped, `YY.MM.DD` to `YYYYMMDD`, real resolution/codecs, own tag |
+| `retitle.sh [--fix] [--bin DIR] PATH...` | Make the container `title` tag of each video match its file name (stream copy, checked, mtime kept); without `--fix` it only reports. `reencode.sh` and `pipeline.sh` now clear that tag on their outputs. |
 | `notify-queue.sh [--remote HOST] --home DIR` | Desktop notification (macOS or Linux) each time a `queue.sh` job finishes or fails, ids only; run it in the background, no session needed |
 | `dupes.sh [options] PATH...` | Find probable duplicates (same content, other resolution or encode): grouped by duration, confirmed by frame hashes and the loudness curve of the audio. Read-only TSV with a SAME / LIKELY / DIFFERENT verdict and a `--cache` so rescans are cheap |
 | `queue.sh [--remote HOST] --home DIR` | Run a queue of `reencode.sh` jobs on this machine for files that live on a NAS: fetch, encode, push back, record the state. Sequential, resumable, run it in the background |
