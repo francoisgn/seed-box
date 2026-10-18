@@ -6,6 +6,14 @@
 
 <p align="center"><b>Seedbox control plane</b> for qBittorrent, cross-seed and Prowlarr</p>
 
+> **Intended use.** This project is an experiment, for personal use: managing
+> a personal media library whose content was legally acquired (discs and files
+> the owner bought or is entitled to keep). It is a set of technical tools and
+> implementations, and nothing here is meant to encourage or facilitate any use
+> contrary to the law or to the rules of the services it talks to. Users are
+> responsible for the content they handle and for complying with the terms of
+> the trackers and services they use.
+
 A dashboard that answers one question, **is my library actually shared on my
 trackers, and are all my trackers fed?**, then helps fix what is not:
 duplicates, stopped torrents, failed cross-seed matches, torrents deleted by
