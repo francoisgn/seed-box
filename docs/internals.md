@@ -282,5 +282,8 @@ qBittorrent show as undeclared once the indexer is deleted.
 3. Push, then the annotated tag `vX.Y.Z` on that commit: it builds the
    image (`.github/workflows/release.yml`). Tags cannot be deleted: a wrong
    tag means a new patch release.
+   The same workflow prunes ghcr.io to the 5 latest tagged images
+   (`prune-images` job): older versions stop being pullable, so keep
+   `SEEDBOX_VERSION` of the deploy recent.
 4. Once the image is built: `deploy/deploy.sh` (version read from the
    checkout), see [deployment.md](deployment.md).

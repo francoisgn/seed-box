@@ -1,5 +1,6 @@
 # Tag vX.Y.Z -> multi-arch image on ghcr.io/<owner>/seed-box, with SBOM and
-# signed build provenance, and a GitHub release carrying the changelog section.
+# signed build provenance, a GitHub release carrying the changelog section, and
+# a retention pass that keeps the 5 latest images.
 name: Release
 
 on:
@@ -47,6 +48,21 @@ jobs:
           subject-name: ghcr.io/${{ github.repository }}
           subject-digest: ${{ steps.push.outputs.digest }}
           push-to-registry: true
+
+  # Retention: only the 5 most recent tagged images stay on ghcr.io (their
+  # platform manifests and attestations too); older ones and orphans go.
+  prune-images:
+    needs: image
+    runs-on: ubuntu-latest
+    permissions:
+      packages: write
+    steps:
+      - uses: dataaxiom/ghcr-cleanup-action@v1.2.2
+        with:
+          package: seed-box
+          keep-n-tagged: 5
+          delete-untagged: true
+          delete-orphaned-images: true
 
   github-release:
     needs: image
