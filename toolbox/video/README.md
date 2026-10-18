@@ -5,6 +5,10 @@
 | `probe.sh FILE...` | Size, bitrate, resolution, HDR flag, audio and subtitle tracks with languages |
 | `inventory.sh [--cache FILE] [--exclude NAME] PATH...` | Bulk scan, one TSV line per video: mtime, duration, size, container, codec, resolution, fps, video Mb/s, bits per pixel, HDR, scan type, audio and subtitle tracks (`--csv` for `;`). ffprobe or mediainfo, so it can run on a NAS that has either |
 | `reencode.sh [options] IN OUT.mkv\|OUT.mp4` | Re-encode to x265, cap the resolution, keep only wanted languages, drop duplicate audio (`--dedupe-audio`), make audio mp4-friendly (`--audio compat`), encode an excerpt (`--start S --duration N`) |
+| `pipeline.sh COMMAND [options]` | Offline-tolerant encode pipeline for files on a NAS: `sync`, `fetch` (NAS to an `in/` folder), `encode` (local only, one at a time), `push` (results in `out/` back to the NAS when reachable), `run`, `status`. State is local, every stage is resumable, so a trip away from the NAS loses nothing |
+| `bd-main.sh [--top N] DISC_FOLDER` | Main title stream of a Blu-ray folder (largest `.m2ts`) and the next ones, to check there is no close second |
+| `retag-name.sh OLD VCODEC ACODEC HEIGHT` | Name for a re-encoded copy: origin team dropped, `YY.MM.DD` to `YYYYMMDD`, real resolution/codecs, own tag |
+| `notify-queue.sh [--remote HOST] --home DIR` | Desktop notification (macOS or Linux) each time a `queue.sh` job finishes or fails, ids only; run it in the background, no session needed |
 | `dupes.sh [options] PATH...` | Find probable duplicates (same content, other resolution or encode): grouped by duration, confirmed by frame hashes and the loudness curve of the audio. Read-only TSV with a SAME / LIKELY / DIFFERENT verdict and a `--cache` so rescans are cheap |
 | `queue.sh [--remote HOST] --home DIR` | Run a queue of `reencode.sh` jobs on this machine for files that live on a NAS: fetch, encode, push back, record the state. Sequential, resumable, run it in the background |
 
@@ -118,3 +122,23 @@ loudness curve of the first `--audio-secs` seconds (a re-encode keeps it). The v
 `DIFFERENT` otherwise (printed with `--all`). It decodes a few frames and minutes per
 file, so run it when the CPU is free. It never deletes anything: pick the version to keep
 yourself, using the resolution and Mb/s columns.
+
+## Working away from the NAS
+
+`pipeline.sh` splits `queue.sh` into independent stages so that only `fetch` and `push` need the
+NAS. Start `fetch` (and `push`) while you are on the network, `encode` runs on its own from the
+`in/` folder, and `push` sends the finished files when the NAS is reachable again:
+
+```sh
+./pipeline.sh sync   --remote nas --home /path/to/home --work ~/Desktop/Encode
+./pipeline.sh fetch  --remote nas --home /path/to/home --work ~/Desktop/Encode --loop &
+./pipeline.sh encode --remote nas --home /path/to/home --work ~/Desktop/Encode --loop &
+./pipeline.sh push   --remote nas --home /path/to/home --work ~/Desktop/Encode --loop &
+./pipeline.sh status --work ~/Desktop/Encode
+```
+
+The work folder holds `in/` (sources waiting to be encoded), `out/` (encodes waiting to be sent),
+`state.tsv` (one line per stage change), `logs/` and `STATUS.txt`. `fetch` keeps a free-space reserve
+(`--reserve GB`), `encode` is sequential (x265 already uses every core) and notifies when a job ends,
+`push` only sends what you validated (move a file from `out/` to `out/OK/`, or `pipeline.sh approve ID`), verifies the size on the NAS and then deletes the local copy; `--in-cap GB` (default 150) limits the `in/` cache and `--reserve GB` (default 100) keeps that much disk free. A source leaves `in/` as soon as its encode succeeds. For each file sent, a line (old source, new file, size ratio, codecs, height) is appended to `replace-pending.tsv` next to `queue.tsv`, so replacing the big source is a separate, remembered step. Re-run `sync` after adding lines to
+`queue.tsv` on the NAS. Use bash to run it (`bash -c`), not zsh, if you pass options through a variable.
