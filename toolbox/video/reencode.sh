@@ -9,11 +9,13 @@
 #   --preset P        x265 preset (default medium)
 #   --audio-langs L   comma list of languages to keep, e.g. fre,eng ("all" keeps everything)
 #   --sub-langs L     same for subtitles
-#   --audio MODE      copy | eac3 | compat (see video.conf.example)
+#   --audio MODE      copy | eac3 | compat | aac (see video.conf.example)
+#                     aac: every track that is not AAC becomes AAC (256k stereo, 448k for 5.1)
 #                     compat: keep AAC/AC-3/E-AC-3/MP3/Opus, else AAC 256k (stereo) or AC-3 640k (5.1)
 #   --dedupe-audio    same language and channel count twice: keep one (AAC preferred)
 #   --start S         test excerpt: start at S seconds ...
 #   --duration N      ... and keep N seconds (skips the duration check)
+#   --chapters FILE   take the chapters from an FFMETADATA file (for example from mpls-chapters.py)
 #   --tonemap         HDR -> SDR (needs an ffmpeg built with zimg/zscale)
 #   --dry-run         print the ffmpeg command and stop
 # The container title tag is always cleared (a player shows the file name instead of the old release title).
@@ -31,7 +33,7 @@ AUDIO_LANGS="fre,eng" SUB_LANGS="fre,eng" AUDIO=copy EAC3_BITRATE=640k
 conf="${TOOLBOX_CONF:-${XDG_CONFIG_HOME:-$HOME/.config}/toolbox/video.conf}"
 # shellcheck source=/dev/null
 [ -f "$conf" ] && . "$conf"
-TONEMAP=0 DRY=0 DEDUPE=0 START='' LIMIT=''
+TONEMAP=0 DRY=0 DEDUPE=0 START='' LIMIT='' CHAPTERS=''
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -43,6 +45,7 @@ while [ $# -gt 0 ]; do
     --sub-langs) SUB_LANGS="$2"; shift 2 ;;
     --audio) AUDIO="$2"; shift 2 ;;
     --tonemap) TONEMAP=1; shift ;;
+    --chapters) CHAPTERS="$2"; shift 2 ;;
     --dedupe-audio) DEDUPE=1; shift ;;
     --start) START="$2"; shift 2 ;;
     --duration) LIMIT="$2"; shift 2 ;;
@@ -66,7 +69,7 @@ esac
 [ ! -e "$out" ] || die "output exists: $out"
 [ "$in" -ef "$out" ] 2>/dev/null && die "output is the input"
 case "$CODEC" in x265 | videotoolbox | copy) ;; *) die "unknown codec: $CODEC" ;; esac
-case "$AUDIO" in copy | eac3 | compat) ;; *) die "unknown audio mode: $AUDIO" ;; esac
+case "$AUDIO" in copy | eac3 | compat | aac) ;; *) die "unknown audio mode: $AUDIO" ;; esac
 
 # lang_match <wanted comma list> <stream language>: ISO 639-1 and 639-2 spellings.
 lang_match() {
@@ -128,6 +131,10 @@ while IFS='|' read -r idx type codec lang ch h trc; do
               audio_args="$audio_args -c:a:$keepA eac3 -b:a:$keepA $br" ;;
           esac
         fi
+        if [ "$AUDIO" = aac ] && [ "$codec" != aac ]; then
+          if [ "${ch:-2}" -le 2 ]; then audio_args="$audio_args -c:a:$keepA aac -b:a:$keepA 256k"
+          else audio_args="$audio_args -c:a:$keepA aac -b:a:$keepA 448k"; fi
+        fi
         if [ "$AUDIO" = compat ]; then
           case "$codec" in
             aac | ac3 | eac3 | mp3 | opus) ;;
@@ -139,6 +146,7 @@ while IFS='|' read -r idx type codec lang ch h trc; do
       fi ;;
     subtitle)
       nS=$((nS + 1))
+      case "$out" in *.mp4) case "$codec" in hdmv_pgs_subtitle | dvd_subtitle | dvb_subtitle) warn "image subtitle track dropped (needs an .mkv output)"; continue ;; esac ;; esac
       if lang_match "$SUB_LANGS" "${lang:-und}"; then maps="$maps -map 0:$idx"; keepS=$((keepS + 1)); fi ;;
   esac
 done <<EOF2
@@ -178,10 +186,11 @@ dur="$(ffprobe -v error -show_entries format=duration -of csv=p=0 "$in")"
 info "$(basename "$in"): ${src_h}p, audio $keepA/$nA, subtitles $keepS/$nS, codec $CODEC${vf:+, filter on}"
 
 tmp="$out.part"
+chmap=0; [ -z "$CHAPTERS" ] || chmap=1
 # shellcheck disable=SC2086 # the argument strings are built above on purpose
-set -- ffmpeg -nostdin -hide_banner -loglevel error -y ${START:+-ss "$START"} -i "$in" ${LIMIT:+-t "$LIMIT"} $maps \
+set -- ffmpeg -nostdin -hide_banner -loglevel error -y ${START:+-ss "$START"} -i "$in" ${CHAPTERS:+-i "$CHAPTERS"} ${LIMIT:+-t "$LIMIT"} $maps \
   ${vf:+-vf "$vf"} $vargs -c:a copy $audio_args -c:s copy \
-  -map_chapters 0 -map_metadata 0 -metadata title= -progress pipe:1 -nostats $fmtargs -f $fmt "$tmp"
+  -map_chapters $chmap -map_metadata 0 -metadata title= -progress pipe:1 -nostats $fmtargs -f $fmt "$tmp"
 
 if [ "$DRY" = 1 ]; then
   printf '%s ' "$@"; printf '\n'

@@ -99,7 +99,7 @@ fetch_pass() {
     size="$(rsize "$src" || echo 0)"
     if [ "${size:-0}" -le 0 ]; then note "$id" failed "source not found"; ko "$id source not found"; continue; fi
     need=$((size / 1073741824 + 1)); used="$(du -sk "$WORK/in" | awk '{ printf "%d", $1 / 1048576 }')"
-    if [ $((used + need)) -gt "$INCAP" ] || [ "$(free_gb)" -lt $((need + RESERVE)) ]; then info "$id waits: in/ cache full or low disk"; break; fi
+    if [ $((used + need)) -gt "$INCAP" ] || [ "$(free_gb)" -lt $((need + RESERVE)) ]; then info "$id waits: in/ cache full or low disk"; continue; fi
     if rcopy_from "$src" "$f.part" && [ "$(wc -c <"$f.part" | tr -d ' ')" = "$size" ]; then
       mv "$f.part" "$f"; note "$id" fetched "$size"; ok "$id fetched"
     else warn "$id fetch interrupted, will resume"; break; fi

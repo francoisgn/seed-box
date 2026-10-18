@@ -7,6 +7,9 @@
 | `reencode.sh [options] IN OUT.mkv\|OUT.mp4` | Re-encode to x265, cap the resolution, keep only wanted languages, drop duplicate audio (`--dedupe-audio`), make audio mp4-friendly (`--audio compat`), encode an excerpt (`--start S --duration N`) |
 | `pipeline.sh COMMAND [options]` | Offline-tolerant encode pipeline for files on a NAS: `sync`, `fetch` (NAS to an `in/` folder), `encode` (local only, one at a time), `push` (results in `out/` back to the NAS when reachable), `run`, `status`. State is local, every stage is resumable, so a trip away from the NAS loses nothing |
 | `bd-main.sh [--top N] DISC_FOLDER` | Main title stream of a Blu-ray folder (largest `.m2ts`) and the next ones, to check there is no close second |
+| `retitle.sh [--fix] [--bin DIR] PATH...` | Make the container title tag equal the release name (file name without extension); stream copy only, checked before swapping in. Without `--fix` it only reports |
+| `bd-queue.sh [options] DISC NAME` | Queue lines for the main title and every other stream of 20 s or more of a Blu-ray folder (trailers, bonus), so a whole disc is transcoded to the same format |
+| `mpls-chapters.py [--clip N] [--list] DISC` | Chapters of the main playlist of a Blu-ray as an FFMETADATA file (the `.m2ts` alone has none); use it with `reencode.sh --chapters FILE` |
 | `retag-name.sh OLD VCODEC ACODEC HEIGHT` | Name for a re-encoded copy: origin team dropped, `YY.MM.DD` to `YYYYMMDD`, real resolution/codecs, own tag |
 | `retitle.sh [--fix] [--bin DIR] PATH...` | Make the container `title` tag of each video match its file name (stream copy, checked, mtime kept); without `--fix` it only reports. `reencode.sh` and `pipeline.sh` now clear that tag on their outputs. |
 | `notify-queue.sh [--remote HOST] --home DIR` | Desktop notification (macOS or Linux) each time a `queue.sh` job finishes or fails, ids only; run it in the background, no session needed |
@@ -143,3 +146,12 @@ The work folder holds `in/` (sources waiting to be encoded), `out/` (encodes wai
 (`--reserve GB`), `encode` is sequential (x265 already uses every core) and notifies when a job ends,
 `push` only sends what you validated (move a file from `out/` to `out/OK/`, or `pipeline.sh approve ID`), verifies the size on the NAS and then deletes the local copy; `--in-cap GB` (default 150) limits the `in/` cache and `--reserve GB` (default 100) keeps that much disk free. A source leaves `in/` as soon as its encode succeeds. For each file sent, a line (old source, new file, size ratio, codecs, height) is appended to `replace-pending.tsv` next to `queue.tsv`, so replacing the big source is a separate, remembered step. Re-run `sync` after adding lines to
 `queue.tsv` on the NAS. Use bash to run it (`bash -c`), not zsh, if you pass options through a variable.
+
+## Blu-ray discs
+
+A full disc is a folder (`BDMV/STREAM/*.m2ts`, playlists, menus). The main title is the largest
+stream (`bd-main.sh`); the shorter streams are trailers and bonus. MP4 does support chapters, but
+they are stored in the playlist (`BDMV/PLAYLIST/*.mpls`), not in the streams, so a rip made from the
+`.m2ts` alone loses them: `mpls-chapters.py DISC --clip 00002 > chapters.ffmeta` rebuilds them and
+`reencode.sh --chapters chapters.ffmeta` writes them into the rip. `bd-queue.sh` lists the extras for a
+queue. After any rename or replacement, `retitle.sh --fix` keeps the title tag equal to the file name.
