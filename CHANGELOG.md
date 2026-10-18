@@ -1,11 +1,12 @@
 # Changelog
 
-## Unreleased
+## 2.6.2
 
 - New logo, favicon and `.nfo` drawing (Clawd watering seeds); wording of the extra
   trackers check now speaks of unintended announce destinations; tests and docs
   use placeholder titles and tracker names only.
 - Release workflow keeps only the 5 latest images on ghcr.io.
+- README states the intended use (personal, legally acquired library).
 
 ## 2.6.1
 
