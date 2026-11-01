@@ -1,4 +1,4 @@
-FROM python:3.14-slim
+FROM python:3.15-slim
 
 LABEL org.opencontainers.image.source="https://github.com/francoisgn/seed-box" \
       org.opencontainers.image.licenses="LicenseRef-PolyForm-Strict-1.0.0" \
